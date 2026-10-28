@@ -38,6 +38,10 @@ run = "bunx --bun tsc"
 description = "Tests through bun test"
 run = "bun test --pass-with-no-tests"
 
+[tasks.e2e]
+description = "End-to-end scenarios against a real Pi and grafana/otel-lgtm in Docker"
+run = "bun test/e2e/run.ts"
+
 [tasks.check]
 description = "Every formatting, lint, type and test check"
 depends = ["fmt --check", "lint", "typecheck", "test"]

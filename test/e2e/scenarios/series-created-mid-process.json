@@ -1,0 +1,14 @@
+{
+  "description": "The Agent tool and the subagent series first appear after several periodic exports",
+  "metricExportIntervalMs": 1000,
+  "steps": [{ "prompt": "hello" }, { "sleepMs": 3000 }, { "prompt": "spawn" }, { "sleepMs": 3000 }],
+  "expect": {
+    "pi_tool_calls_total{gen_ai_tool_name=\"read\",pi_session_kind=\"main\"}": 1,
+    "pi_tool_calls_total{gen_ai_tool_name=\"Agent\",pi_session_kind=\"main\"}": 1,
+    "pi_tool_calls_total{gen_ai_tool_name=\"read\",pi_session_kind=\"subagent\",gen_ai_agent_name=\"Explore\"}": 1,
+    "pi_tool_calls_total{gen_ai_tool_name=\"bash\",error_type=\"not_run\",pi_session_kind=\"subagent\"}": 1,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 500,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"subagent\"}": 300,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"stop\",pi_session_kind=\"main\"}": 2
+  }
+}

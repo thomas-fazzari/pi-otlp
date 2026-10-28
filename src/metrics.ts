@@ -6,11 +6,13 @@ import type { Attributes } from "./attributes.ts";
 import { AGGREGATION_TEMPORALITY_CUMULATIVE, toInt64 } from "./otlp.ts";
 import type * as otlp from "./otlp.ts";
 import { stableKey } from "./utils/stable-key.ts";
-import { nowUnixNanos } from "./utils/time.ts";
+import { nowUnixNanos, unixNanos } from "./utils/time.ts";
 
 const MAX_SERIES_PER_INSTRUMENT = 2000;
 // The OpenTelemetry metrics SDK spec routes measurements beyond the cardinality limit to this series.
 const OVERFLOW_ATTRIBUTES: Attributes = { "otel.metric.overflow": true };
+// Prometheus keeps one sample per millisecond, so a zero start point must never share one with the current point.
+const SERIES_START_LEAD_MS = 1;
 
 export interface InstrumentOptions {
   unit?: string;
@@ -29,7 +31,17 @@ export interface Histogram {
   record(value: number, attributes?: Attributes): void;
 }
 
-interface Series<T> {
+export interface MetricsCollection {
+  metrics: otlp.Metric[];
+  // Call once the export has a final outcome, so later exports stop adding zero start points.
+  commit: () => void;
+}
+
+interface Delivery {
+  delivered: boolean;
+}
+
+interface Series<T> extends Delivery {
   attributes: otlp.KeyValue[];
   startTimeUnixNano: otlp.Int64;
   data: T;
@@ -43,9 +55,16 @@ interface HistogramData {
   max: number;
 }
 
+type HistogramValues = Omit<
+  otlp.HistogramDataPoint,
+  "attributes" | "startTimeUnixNano" | "timeUnixNano"
+>;
+
+type Encode = (time: otlp.Int64, pending: Delivery[]) => otlp.Metric | undefined;
+
 type Instrument =
-  | { kind: "counter"; handle: Counter; encode: (time: otlp.Int64) => otlp.Metric | undefined }
-  | { kind: "histogram"; handle: Histogram; encode: (time: otlp.Int64) => otlp.Metric | undefined };
+  | { kind: "counter"; handle: Counter; encode: Encode }
+  | { kind: "histogram"; handle: Histogram; encode: Encode };
 
 class SeriesMap<T> {
   readonly #series = new Map<string, Series<T>>();
@@ -66,21 +85,27 @@ class SeriesMap<T> {
     if (series === undefined) {
       series = {
         attributes: encodeAttributes(seriesAttributes),
-        startTimeUnixNano: nowUnixNanos(),
+        startTimeUnixNano: unixNanos(Date.now() - SERIES_START_LEAD_MS),
         data: this.#create(),
+        delivered: false,
       };
       this.#series.set(key, series);
     }
     return series;
   }
 
-  encode<P>(time: otlp.Int64, point: (data: T) => P) {
-    return [...this.#series.values()].map((series) => ({
-      attributes: series.attributes,
-      startTimeUnixNano: series.startTimeUnixNano,
-      timeUnixNano: time,
-      ...point(series.data),
-    }));
+  encode<P>(time: otlp.Int64, point: (data: T) => P, zero: P, pending: Delivery[]) {
+    const points = [];
+    for (const series of this.#series.values()) {
+      const base = { attributes: series.attributes, startTimeUnixNano: series.startTimeUnixNano };
+      if (!series.delivered) {
+        // Prometheus increase() ignores the first sample of a series, so it must be a zero.
+        points.push({ ...base, timeUnixNano: series.startTimeUnixNano, ...zero });
+        pending.push(series);
+      }
+      points.push({ ...base, timeUnixNano: time, ...point(series.data) });
+    }
+    return points;
   }
 }
 
@@ -105,11 +130,18 @@ export class Meter {
     return instrument.handle;
   }
 
-  collect(): otlp.Metric[] {
+  collect(): MetricsCollection {
     const time = nowUnixNanos();
-    return [...this.#instruments.values()]
-      .map((instrument) => instrument.encode(time))
+    const pending: Delivery[] = [];
+    const metrics = [...this.#instruments.values()]
+      .map((instrument) => instrument.encode(time, pending))
       .filter((metric) => metric !== undefined);
+    const commit = () => {
+      for (const series of pending) {
+        series.delivered = true;
+      }
+    };
+    return { metrics, commit };
   }
 
   #register(name: string, instrument: Instrument): Instrument {
@@ -129,8 +161,13 @@ function createCounter(name: string, options: InstrumentOptions): Instrument {
       series.getOrCreate(attributes).data.value += value;
     },
   };
-  const encode = (time: otlp.Int64): otlp.Metric | undefined => {
-    const dataPoints = series.encode(time, (data) => ({ asDouble: data.value }));
+  const encode: Encode = (time, pending) => {
+    const dataPoints = series.encode(
+      time,
+      (data) => ({ asDouble: data.value }),
+      { asDouble: 0 },
+      pending,
+    );
     if (dataPoints.length === 0) {
       return undefined;
     }
@@ -151,7 +188,7 @@ function createCounter(name: string, options: InstrumentOptions): Instrument {
 function createHistogram(name: string, options: HistogramOptions): Instrument {
   const { boundaries } = options;
   const series = new SeriesMap<HistogramData>(() => ({
-    bucketCounts: Array<number>(boundaries.length + 1).fill(0),
+    bucketCounts: emptyBuckets(boundaries),
     count: 0,
     sum: 0,
     min: Infinity,
@@ -165,15 +202,24 @@ function createHistogram(name: string, options: HistogramOptions): Instrument {
       addToHistogram(series.getOrCreate(attributes).data, boundaries, value);
     },
   };
-  const encode = (time: otlp.Int64): otlp.Metric | undefined => {
-    const dataPoints = series.encode(time, (data) => ({
-      count: toInt64(data.count),
-      sum: data.sum,
-      min: data.min,
-      max: data.max,
-      bucketCounts: data.bucketCounts.map(toInt64),
-      explicitBounds: boundaries,
-    }));
+  const zero: HistogramValues = {
+    count: toInt64(0),
+    sum: 0,
+    min: undefined,
+    max: undefined,
+    bucketCounts: emptyBuckets(boundaries).map(toInt64),
+    explicitBounds: boundaries,
+  };
+  const point = (data: HistogramData): HistogramValues => ({
+    count: toInt64(data.count),
+    sum: data.sum,
+    min: data.min,
+    max: data.max,
+    bucketCounts: data.bucketCounts.map(toInt64),
+    explicitBounds: boundaries,
+  });
+  const encode: Encode = (time, pending) => {
+    const dataPoints = series.encode(time, point, zero, pending);
     if (dataPoints.length === 0) {
       return undefined;
     }
@@ -185,6 +231,10 @@ function createHistogram(name: string, options: HistogramOptions): Instrument {
     };
   };
   return { kind: "histogram", handle, encode };
+}
+
+function emptyBuckets(boundaries: readonly number[]): number[] {
+  return Array<number>(boundaries.length + 1).fill(0);
 }
 
 function addToHistogram(data: HistogramData, boundaries: readonly number[], value: number): void {

@@ -5,6 +5,7 @@
     "": {
       "name": "pi-otlp",
       "devDependencies": {
+        "@earendil-works/pi-ai": "1.4.0",
         "@earendil-works/pi-coding-agent": "1.4.0",
         "@types/bun": "1.4.4",
         "markdownlint": "0.42.0",

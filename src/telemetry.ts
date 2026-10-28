@@ -63,60 +63,33 @@ const LOG_PIPELINE: Pipeline = {
   processorType: OTEL_COMPONENT_TYPE_VALUE_BATCHING_LOG_PROCESSOR,
 };
 
-interface Telemetry {
+export interface Telemetry {
   counter(name: string, options?: InstrumentOptions): Counter;
   histogram(name: string, options: HistogramOptions): Histogram;
   startSpan(name: string, options?: SpanOptions): Span;
   emitLog(record: LogRecord): void;
 }
 
-interface Core {
+interface TelemetryCore {
   telemetry: Telemetry;
-  flush(): Promise<void>;
-  shutdown(): Promise<void>;
+  flush: () => Promise<void>;
 }
 
-interface Shared {
-  instanceId: string;
-  refs: number;
-  core: Core | undefined;
+// The process core lives on globalThis to survive /reload, and the index signature lets TypeScript accept globalThis.
+const store: { [SHARED_KEY]?: TelemetryCore; [key: string]: unknown } = globalThis;
+
+export function processTelemetry(): Telemetry {
+  store[SHARED_KEY] ??= createTelemetryCore();
+  return store[SHARED_KEY].telemetry;
 }
 
-// Pi evaluates this module again on /reload, so the process-wide core lives on globalThis.
-function shared(): Shared {
-  // The index signature lets TypeScript accept globalThis, which declares no slot for this symbol.
-  const store: { [SHARED_KEY]?: Shared; [key: string]: unknown } = globalThis;
-  store[SHARED_KEY] ??= { instanceId: crypto.randomUUID(), refs: 0, core: undefined };
-  return store[SHARED_KEY];
+export async function flushProcessTelemetry(): Promise<void> {
+  await store[SHARED_KEY]?.flush();
 }
 
-export function acquireTelemetry(): Telemetry {
-  const state = shared();
-  state.core ??= createCore(state.instanceId);
-  state.refs++;
-  return state.core.telemetry;
-}
-
-export async function releaseTelemetry(): Promise<void> {
-  const state = shared();
-  if (state.refs === 0) {
-    return;
-  }
-  state.refs--;
-  const core = state.core;
-  if (state.refs > 0 || core === undefined) {
-    return;
-  }
-  state.core = undefined;
-  await core.shutdown();
-}
-
-export async function flushTelemetry(): Promise<void> {
-  await shared().core?.flush();
-}
-
-function createCore(instanceId: string): Core {
+export function createTelemetryCore(): TelemetryCore {
   const config = readConfig();
+  const instanceId = crypto.randomUUID();
   const resource: otlp.Resource = {
     attributes: encodeAttributes({
       [ATTR_SERVICE_NAME]: SERVICE_NAME,
@@ -146,7 +119,7 @@ function createCore(instanceId: string): Core {
     [ATTR_OTEL_COMPONENT_TYPE]: OTEL_COMPONENT_TYPE_VALUE_OTLP_HTTP_JSON_METRIC_EXPORTER,
   };
   const sendMetrics = async (signal: AbortSignal) => {
-    const metrics = meter.collect();
+    const { metrics, commit } = meter.collect();
     if (metrics.length === 0) {
       return;
     }
@@ -154,9 +127,21 @@ function createCore(instanceId: string): Core {
       resourceMetrics: [{ resource, scopeMetrics: [{ scope: SCOPE, metrics }] }],
     };
     const result = await post(`${config.endpoint}/v1/metrics`, request, signal);
+
+    // Prometheus rejects a whole request that re-sends a zero it already holds, so only a retryable failure keeps the zeros.
+    if (result.outcome !== "retry") {
+      commit();
+    }
+
     // Cumulative points are never queued again, since the next export carries their latest values.
-    const failure = result.outcome === "sent" ? {} : { [ATTR_ERROR_TYPE]: result.errorType };
-    exportedDataPoints.add(countDataPoints(metrics), { ...metricExporter, ...failure });
+    if (result.outcome === "sent") {
+      exportedDataPoints.add(countDataPoints(metrics), metricExporter);
+      return;
+    }
+    exportedDataPoints.add(countDataPoints(metrics), {
+      ...metricExporter,
+      [ATTR_ERROR_TYPE]: result.errorType,
+    });
   };
 
   const metricsLoop = new ExportLoop(sendMetrics);
@@ -167,9 +152,9 @@ function createCore(instanceId: string): Core {
     { loop: spansLoop, intervalMs: config.spanScheduleDelayMs },
     { loop: logsLoop, intervalMs: config.logScheduleDelayMs },
   ];
-  const timers = schedules.map(({ loop, intervalMs }) =>
-    setInterval(() => void loop.run(AbortSignal.timeout(EXPORT_TIMEOUT_MS)), intervalMs).unref(),
-  );
+  for (const { loop, intervalMs } of schedules) {
+    setInterval(() => void loop.run(AbortSignal.timeout(EXPORT_TIMEOUT_MS)), intervalMs).unref();
+  }
 
   const telemetry: Telemetry = {
     counter: (name, options) => meter.counter(name, options),
@@ -189,14 +174,7 @@ function createCore(instanceId: string): Core {
     await raceAbort(drainAll(deadline), deadline);
   }
 
-  async function shutdown(): Promise<void> {
-    for (const timer of timers) {
-      clearInterval(timer);
-    }
-    await flush();
-  }
-
-  return { telemetry, flush, shutdown };
+  return { telemetry, flush };
 }
 
 function deliveryReport(meter: Meter, pipeline: Pipeline): DeliveryReport {

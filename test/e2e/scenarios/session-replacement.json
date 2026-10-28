@@ -1,0 +1,24 @@
+{
+  "description": "new_session, switch_session and fork keep counting in the same series",
+  "metricExportIntervalMs": 1000,
+  "steps": [
+    { "prompt": "hello" },
+    { "sleepMs": 2500 },
+    { "session": "new" },
+    { "prompt": "hello after new_session" },
+    { "sleepMs": 2500 },
+    { "session": "switch-to-first" },
+    { "prompt": "hello after switch_session" },
+    { "sleepMs": 2500 },
+    { "session": "fork-first-message" },
+    { "prompt": "hello after fork" },
+    { "sleepMs": 2500 }
+  ],
+  "expect": {
+    "pi_tool_calls_total{gen_ai_tool_name=\"read\",pi_session_kind=\"main\"}": 4,
+    "pi_tool_calls_total{gen_ai_tool_name=\"bash\",error_type=\"not_run\",pi_session_kind=\"main\"}": 4,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 1200,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"toolUse\",pi_session_kind=\"main\"}": 8,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"stop\",pi_session_kind=\"main\"}": 4
+  }
+}

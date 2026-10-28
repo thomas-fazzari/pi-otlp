@@ -1,0 +1,15 @@
+{
+  "description": "Pi quits before the first periodic export, so the final flush carries every series once",
+  "steps": [{ "prompt": "hello" }],
+  "expect": {
+    "pi_tool_calls_total{gen_ai_tool_name=\"read\",pi_session_kind=\"main\"}": 1,
+    "pi_tool_calls_total{gen_ai_tool_name=\"bash\",error_type=\"not_run\",pi_session_kind=\"main\"}": 1,
+    "pi_tool_duration_seconds_count{gen_ai_tool_name=\"read\",pi_session_kind=\"main\"}": 1,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 300,
+    "pi_token_usage_total{gen_ai_token_type=\"cache_write\",pi_session_kind=\"main\"}": 18,
+    "pi_token_usage_total{gen_ai_token_type=\"cache_write_1h\",pi_session_kind=\"main\"}": 12,
+    "pi_cost_USD_total{pi_session_kind=\"main\"}": 0.00198,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"toolUse\",pi_session_kind=\"main\"}": 2,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"stop\",pi_session_kind=\"main\"}": 1
+  }
+}

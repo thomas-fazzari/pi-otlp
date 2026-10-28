@@ -4,12 +4,25 @@
 // Copied from @opentelemetry/semantic-conventions 1.44.0, which advises copying incubating definitions instead of importing them.
 
 export const ATTR_ERROR_TYPE = "error.type";
+export const ATTR_GEN_AI_AGENT_NAME = "gen_ai.agent.name";
+export const ATTR_GEN_AI_OPERATION_NAME = "gen_ai.operation.name";
+export const ATTR_GEN_AI_PROVIDER_NAME = "gen_ai.provider.name";
+export const ATTR_GEN_AI_REQUEST_MODEL = "gen_ai.request.model";
+export const ATTR_GEN_AI_RESPONSE_MODEL = "gen_ai.response.model";
+export const ATTR_GEN_AI_TOKEN_TYPE = "gen_ai.token.type";
+export const ATTR_GEN_AI_TOOL_NAME = "gen_ai.tool.name";
 export const ATTR_OTEL_COMPONENT_TYPE = "otel.component.type";
 export const ATTR_SERVICE_INSTANCE_ID = "service.instance.id";
 export const ATTR_SERVICE_NAME = "service.name";
 export const ATTR_SERVICE_VERSION = "service.version";
 
 export const ERROR_TYPE_VALUE_OTHER = "_OTHER";
+
+export const GEN_AI_OPERATION_NAME_VALUE_CHAT = "chat";
+export const GEN_AI_TOKEN_TYPE_VALUE_INPUT = "input";
+export const GEN_AI_TOKEN_TYPE_VALUE_OUTPUT = "output";
+
+export const METRIC_GEN_AI_CLIENT_OPERATION_DURATION = "gen_ai.client.operation.duration";
 
 export const METRIC_OTEL_SDK_EXPORTER_LOG_EXPORTED = "otel.sdk.exporter.log.exported";
 export const METRIC_OTEL_SDK_EXPORTER_METRIC_DATA_POINT_EXPORTED =

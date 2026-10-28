@@ -3,29 +3,31 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sdkDisabled } from "./config.ts";
-import { acquireTelemetry, flushTelemetry, releaseTelemetry } from "./telemetry.ts";
+import { createPiMetrics } from "./pi-metrics.ts";
+import type { PiMetrics } from "./pi-metrics.ts";
+import { sessionAttributes } from "./session-kind.ts";
+import { flushProcessTelemetry, processTelemetry } from "./telemetry.ts";
 
-export default function piOtlp(pi: ExtensionAPI): void {
+export default function piOtlp(pi: Pick<ExtensionAPI, "on">): void {
   if (sdkDisabled()) {
     return;
   }
-  // Pi delivers session_start twice to a replacement runtime, so each runtime holds at most one reference.
-  let held = false;
-  pi.on("session_start", () => {
-    if (held) {
-      return;
-    }
-    held = true;
-    acquireTelemetry();
+  let metrics: PiMetrics | undefined;
+  pi.on("session_start", (_event, ctx) => {
+    metrics = createPiMetrics(processTelemetry(), sessionAttributes(ctx.getSystemPrompt()));
   });
-  pi.on("session_shutdown", async (event) => {
-    if (held) {
-      held = false;
-      await releaseTelemetry();
+  pi.on("message_end", (event) => {
+    if (event.message.role === "assistant") {
+      metrics?.recordAssistantMessage(event.message);
     }
-    // References still held by child sessions or by runtimes Pi never shut down must not cost the data at exit.
+  });
+  pi.on("tool_execution_end", (event) => {
+    metrics?.recordToolExecution(event);
+  });
+  // Pi also sends quit to each pi-subagents child, and cannot tell it apart from the process quitting.
+  pi.on("session_shutdown", async (event) => {
     if (event.reason === "quit") {
-      await flushTelemetry();
+      await flushProcessTelemetry();
     }
   });
 }

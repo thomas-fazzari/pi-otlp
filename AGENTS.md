@@ -18,7 +18,7 @@ pi-otlp is an extension for the Pi coding agent that exports OpenTelemetry metri
 ### TypeScript conventions
 
 - Pi runs extensions under Bun through jiti. Use only erasable syntax and import relative files with their `.ts` extension.
-- Pi provides `@earendil-works/pi-coding-agent` at runtime, so runtime imports from it are allowed. Never list it in `dependencies`.
+- Pi provides `@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` at runtime, so runtime imports from them are allowed. Never list them in `dependencies`.
 
 ### Tests
 

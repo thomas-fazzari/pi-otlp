@@ -45,11 +45,11 @@ interface NumberDataPoint extends DataPointBase {
   asDouble: number;
 }
 
-interface HistogramDataPoint extends DataPointBase {
+export interface HistogramDataPoint extends DataPointBase {
   count: Int64;
   sum: number;
-  min: number;
-  max: number;
+  min: number | undefined;
+  max: number | undefined;
   bucketCounts: Int64[];
   explicitBounds: readonly number[];
 }
