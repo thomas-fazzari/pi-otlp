@@ -1,6 +1,6 @@
 # Dear Clanker
 
-pi-otlp is an extension for the Pi coding agent that exports OpenTelemetry metrics and traces over OTLP. Pi loads `src/index.ts` directly, the project has no build step.
+pi-otlp is an extension for the Pi coding agent that exports OpenTelemetry metrics, traces and logs over OTLP. Pi loads `src/index.ts` directly, the project has no build step.
 
 ## Repo layout
 
@@ -18,7 +18,7 @@ pi-otlp is an extension for the Pi coding agent that exports OpenTelemetry metri
 ### TypeScript conventions
 
 - Pi runs extensions under Bun through jiti. Use only erasable syntax and import relative files with their `.ts` extension.
-- Pi provides `@earendil-works/pi-coding-agent` at runtime. Import from it with `import type` and never list it in `dependencies`.
+- Pi provides `@earendil-works/pi-coding-agent` at runtime, so runtime imports from it are allowed. Never list it in `dependencies`.
 
 ### Tests
 

@@ -42,5 +42,17 @@
     "typescript/use-unknown-in-catch-callback-variable": "error",
     "unicorn/no-abusive-eslint-disable": "error",
     "unicorn/prefer-native-coercion-functions": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["test/**"],
+      "rules": {
+        "typescript/no-explicit-any": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    }
+  ]
 }
