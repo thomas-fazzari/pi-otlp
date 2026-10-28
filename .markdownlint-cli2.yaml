@@ -1,0 +1,11 @@
+config:
+  extends: ./node_modules/markdownlint/style/prettier.json
+  MD034: false
+  MD024:
+    siblings_only: true
+globs:
+  - AGENTS.md
+ignores:
+  - "**/node_modules/**"
+  - LICENSE
+fix: false

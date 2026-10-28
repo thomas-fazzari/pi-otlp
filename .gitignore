@@ -1,0 +1,39 @@
+# Ignore everything by default
+*
+
+# Except this
+!/.gitignore
+!/.gitattributes
+!/.markdownlint-cli2.yaml
+!/.oxfmtrc.json
+!/.oxlintrc.json
+!/AGENTS.md
+!/LICENSE
+!/bun.lock
+!/bunfig.toml
+!/lefthook.yml
+!/mise.toml
+!/package.json
+!/tsconfig.json
+
+!/.vscode/
+!/.vscode/extensions.json
+!/.vscode/settings.json
+!/.vscode/tasks.json
+!/.pi/
+!/.pi/extensions/
+!/.pi/extensions/format.ts
+
+!/scripts/
+!/scripts/**
+!/src/
+!/src/**
+!/test/
+!/test/**
+
+# Generated files inside allowed dirs
+**/node_modules/
+**/.DS_Store
+**/*.log
+**/.env
+**/.env.*

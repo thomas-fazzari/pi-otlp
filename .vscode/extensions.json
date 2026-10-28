@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "hverlin.mise-vscode",
+    "oxc.oxc-vscode",
+    "DavidAnson.vscode-markdownlint",
+    "redhat.vscode-yaml",
+    "tamasfe.even-better-toml",
+    "yoavbls.pretty-ts-errors"
+  ]
+}
