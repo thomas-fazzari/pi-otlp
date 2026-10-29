@@ -84,7 +84,7 @@ export default function piOtlp(pi: Pick<ExtensionAPI, "on" | "getThinkingLevel">
     metrics?.recordToolExecution(event);
     traces?.toolEnd(event);
   });
-  // Pi also sends quit to each pi-subagents child, and cannot tell it apart from the process quitting.
+  // Each subagent child session also gets quit when it closes, which looks the same as the process quitting.
   pi.on("session_shutdown", async (event) => {
     logs?.sessionShutdown(event.reason);
     traces?.interrupt();

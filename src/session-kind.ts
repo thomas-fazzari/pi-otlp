@@ -5,7 +5,7 @@ import type { Attributes } from "./attributes.ts";
 import { ATTR_PI_SESSION_KIND } from "./pi-conventions.ts";
 import { ATTR_GEN_AI_AGENT_NAME } from "./semconv.ts";
 
-// pi-subagents puts this tag on its own line in each child prompt, after any tag inherited from a parent prompt.
+// @tintinweb/pi-subagents and pi-subagents both put this tag on its own line in each child prompt, after any tag inherited from a parent prompt.
 const ACTIVE_AGENT_TAG = /^<active_agent name="([^"]+)"\/>$/gmu;
 
 export interface Session {
