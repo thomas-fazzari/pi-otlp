@@ -1,0 +1,11 @@
+# Provisions the Pi dashboard into grafana/otel-lgtm.
+# `mise run lgtm` mounts this file and the grafana directory into the container.
+apiVersion: 1
+
+providers:
+  - name: pi-otlp
+    type: file
+    allowUiUpdates: false
+    updateIntervalSeconds: 10
+    options:
+      path: /pi-otlp/grafana

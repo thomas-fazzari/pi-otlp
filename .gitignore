@@ -9,6 +9,7 @@
 !/.oxlintrc.json
 !/AGENTS.md
 !/LICENSE
+!/README.md
 !/bun.lock
 !/bunfig.toml
 !/lefthook.yml
@@ -23,6 +24,9 @@
 !/.pi/
 !/.pi/extensions/
 !/.pi/extensions/format.ts
+
+!/grafana/
+!/grafana/**
 
 !/scripts/
 !/scripts/**

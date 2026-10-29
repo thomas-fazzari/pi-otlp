@@ -10,7 +10,7 @@ import { byStart, spanTrees } from "../span-tree.ts";
 import type { TreeSpan } from "../span-tree.ts";
 import { MODEL, PROVIDER } from "./faux-provider.ts";
 
-const LGTM_IMAGE = "grafana/otel-lgtm:0.38.0";
+const LGTM_IMAGE = process.env["LGTM_IMAGE"] ?? "";
 const CONTAINER = `pi-otlp-e2e-${process.pid}`;
 const LGTM_OTLP_PORT = "4318/tcp";
 const LGTM_PROMETHEUS_PORT = "9090/tcp";
@@ -667,6 +667,9 @@ async function runScenario(name: string): Promise<boolean> {
   return (await checkTracesAndLogs(lgtm, scenario, startedAt)) && passed;
 }
 
+if (LGTM_IMAGE === "") {
+  throw new Error("LGTM_IMAGE is not set. Run the scenarios with mise run e2e.");
+}
 if (!(await Bun.file(join(PI_SUBAGENTS_DIR, "package.json")).exists())) {
   throw new Error(`pi-subagents not found in ${PI_SUBAGENTS_DIR}. Set PI_SUBAGENTS_DIR.`);
 }

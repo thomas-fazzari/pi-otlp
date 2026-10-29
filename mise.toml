@@ -4,12 +4,25 @@ min_version = "2026.9.0"
 bun = "1.4.4"
 lefthook = "2.2.2"
 
+[env]
+LGTM_IMAGE = "grafana/otel-lgtm:0.38.0"
+LGTM_NAME = "lgtm"
+LGTM_GRAFANA_PORT = "3000"
+LGTM_OTLP_PORT = "4318"
+LGTM_DATA = "{{env.HOME}}/.local/share/otel-lgtm"
+LGTM_RETENTION = "1y"
+
 [task_config]
 includes = ["scripts"]
 
 [tasks.install]
 description = "Dependencies from the lockfile and the Git hooks"
 run = ["bun install --frozen-lockfile", "lefthook install"]
+
+[tasks.quickstart]
+description = "Starts the local otel-lgtm and installs this extension in Pi"
+depends = ["lgtm"]
+run = 'pi install "{{config_root}}"'
 
 [tasks.fmt]
 description = "Adds missing license headers, formats every file and fixes Markdown lint"
