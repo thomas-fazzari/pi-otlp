@@ -402,6 +402,7 @@
             "stacking": { "group": "A", "mode": "normal" }
           },
           "min": 0,
+          "noValue": "No failures",
           "unit": "short"
         },
         "overrides": []
@@ -422,13 +423,13 @@
         {
           "datasource": { "type": "prometheus", "uid": "${prometheus}" },
           "editorMode": "code",
-          "expr": "sum by (error_type) (last_over_time(gen_ai_client_operation_duration_seconds_count{service_name=\"pi\", error_type!=\"\", gen_ai_provider_name=~\"$provider\", gen_ai_request_model=~\"$model\", pi_session_kind=~\"$session_kind\", gen_ai_agent_name=~\"$agent\"}[$__interval] offset -$__interval) - (last_over_time(gen_ai_client_operation_duration_seconds_count{service_name=\"pi\", error_type!=\"\", gen_ai_provider_name=~\"$provider\", gen_ai_request_model=~\"$model\", pi_session_kind=~\"$session_kind\", gen_ai_agent_name=~\"$agent\"}[$__interval]) or min_over_time(gen_ai_client_operation_duration_seconds_count{service_name=\"pi\", error_type!=\"\", gen_ai_provider_name=~\"$provider\", gen_ai_request_model=~\"$model\", pi_session_kind=~\"$session_kind\", gen_ai_agent_name=~\"$agent\"}[$__interval] offset -$__interval)))",
+          "expr": "sum by (error_type) (last_over_time(gen_ai_client_operation_duration_seconds_count{service_name=\"pi\", error_type=\"error\", gen_ai_provider_name=~\"$provider\", gen_ai_request_model=~\"$model\", pi_session_kind=~\"$session_kind\", gen_ai_agent_name=~\"$agent\"}[$__interval] offset -$__interval) - (last_over_time(gen_ai_client_operation_duration_seconds_count{service_name=\"pi\", error_type=\"error\", gen_ai_provider_name=~\"$provider\", gen_ai_request_model=~\"$model\", pi_session_kind=~\"$session_kind\", gen_ai_agent_name=~\"$agent\"}[$__interval]) or min_over_time(gen_ai_client_operation_duration_seconds_count{service_name=\"pi\", error_type=\"error\", gen_ai_provider_name=~\"$provider\", gen_ai_request_model=~\"$model\", pi_session_kind=~\"$session_kind\", gen_ai_agent_name=~\"$agent\"}[$__interval] offset -$__interval)))",
           "legendFormat": "{{error_type}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Failed requests per day by error type",
+      "title": "Failed requests per day",
       "type": "timeseries"
     },
     {
@@ -505,8 +506,8 @@
       "options": {
         "legend": {
           "calcs": ["sum"],
-          "displayMode": "list",
-          "placement": "bottom",
+          "displayMode": "table",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": { "mode": "multi", "sort": "desc" }
@@ -769,30 +770,22 @@
       "panels": [
         {
           "datasource": { "type": "prometheus", "uid": "${prometheus}" },
-          "description": "Red series failed. Their error type is the HTTP status or the error code.",
+          "description": "Spans, logs and metric data points that pi-otlp failed to deliver, by error type: an HTTP status, an error code or queue_full.",
           "fieldConfig": {
             "defaults": {
               "color": { "mode": "palette-classic" },
               "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 0,
+                "drawStyle": "bars",
+                "fillOpacity": 80,
                 "lineWidth": 1,
-                "pointSize": 6,
-                "showPoints": "always",
-                "stacking": { "group": "A", "mode": "none" }
+                "showPoints": "never",
+                "stacking": { "group": "A", "mode": "normal" }
               },
               "min": 0,
+              "noValue": "No failures",
               "unit": "short"
             },
-            "overrides": [
-              {
-                "matcher": { "id": "byFrameRefID", "options": "B" },
-                "properties": [
-                  { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
-                  { "id": "custom.lineWidth", "value": 3 }
-                ]
-              }
-            ]
+            "overrides": []
           },
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 76 },
           "id": 25,
@@ -810,21 +803,13 @@
             {
               "datasource": { "type": "prometheus", "uid": "${prometheus}" },
               "editorMode": "code",
-              "expr": "sum by (otel_component_type) (last_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type=\"\"}[$__interval] offset -$__interval) - (last_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type=\"\"}[$__interval]) or min_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type=\"\"}[$__interval] offset -$__interval)))",
-              "legendFormat": "{{otel_component_type}}",
+              "expr": "sum by (otel_component_type, error_type) (last_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type!=\"\"}[$__interval] offset -$__interval) - (last_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type!=\"\"}[$__interval]) or min_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type!=\"\"}[$__interval] offset -$__interval)))",
+              "legendFormat": "{{otel_component_type}}: {{error_type}}",
               "range": true,
               "refId": "A"
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${prometheus}" },
-              "editorMode": "code",
-              "expr": "sum by (otel_component_type, error_type) (last_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type!=\"\"}[$__interval] offset -$__interval) - (last_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type!=\"\"}[$__interval]) or min_over_time({__name__=~\"otel_sdk_.+_total\", service_name=\"pi\", error_type!=\"\"}[$__interval] offset -$__interval)))",
-              "legendFormat": "{{otel_component_type}} failed: {{error_type}}",
-              "range": true,
-              "refId": "B"
             }
           ],
-          "title": "Telemetry handled per day",
+          "title": "Export failures per day",
           "type": "timeseries"
         }
       ],
