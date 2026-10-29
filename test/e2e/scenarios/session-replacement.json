@@ -20,5 +20,11 @@
     "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 1200,
     "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"toolUse\",pi_session_kind=\"main\"}": 8,
     "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"stop\",pi_session_kind=\"main\"}": 4
-  }
+  },
+  "traces": [
+    "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))",
+    "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))",
+    "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))",
+    "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))"
+  ]
 }

@@ -16,7 +16,8 @@ export type AnyValue =
   | { stringValue: string }
   | { boolValue: boolean }
   | { intValue: Int64 }
-  | { doubleValue: Double };
+  | { doubleValue: Double }
+  | { arrayValue: { values: AnyValue[] } };
 
 export function toInt64(value: number): Int64 {
   return `${BigInt(value)}`;

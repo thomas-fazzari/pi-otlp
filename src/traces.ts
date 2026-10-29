@@ -6,7 +6,7 @@ import type { Attributes } from "./attributes.ts";
 import { SPAN_KIND, STATUS_CODE } from "./otlp.ts";
 import type * as otlp from "./otlp.ts";
 import { randomHex } from "./utils/random.ts";
-import { nowUnixNanos } from "./utils/time.ts";
+import { unixNanos } from "./utils/time.ts";
 
 const TRACE_ID_BYTES = 16;
 const SPAN_ID_BYTES = 8;
@@ -18,8 +18,15 @@ export interface SpanContext {
 
 export interface SpanOptions {
   kind?: keyof typeof SPAN_KIND;
-  parent?: SpanContext;
+  parent?: SpanContext | undefined;
   attributes?: Attributes;
+  startTimeMs?: number;
+}
+
+export interface SpanResult {
+  attributes?: Attributes;
+  status?: SpanStatus;
+  endTimeMs?: number;
 }
 
 interface SpanStatus {
@@ -29,7 +36,7 @@ interface SpanStatus {
 
 export interface Span {
   readonly context: SpanContext;
-  end(result?: { attributes?: Attributes; status?: SpanStatus }): void;
+  end(result?: SpanResult): void;
 }
 
 export function startSpan(
@@ -41,7 +48,7 @@ export function startSpan(
     traceId: options.parent?.traceId ?? randomHex(TRACE_ID_BYTES),
     spanId: randomHex(SPAN_ID_BYTES),
   };
-  const startTimeUnixNano = nowUnixNanos();
+  const startTimeUnixNano = unixNanos(options.startTimeMs ?? Date.now());
   let ended = false;
   return {
     context,
@@ -56,7 +63,7 @@ export function startSpan(
         name,
         kind: SPAN_KIND[options.kind ?? "internal"],
         startTimeUnixNano,
-        endTimeUnixNano: nowUnixNanos(),
+        endTimeUnixNano: unixNanos(result.endTimeMs ?? Date.now()),
         attributes: encodeAttributes({ ...options.attributes, ...result.attributes }),
         status: encodeStatus(result.status),
       });

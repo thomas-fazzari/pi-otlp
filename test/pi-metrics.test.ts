@@ -1,79 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import piOtlp from "../src/index.ts";
-import { Collector, configure, latestPoints, metric, resetConfig } from "./collector.ts";
-
-type Handler = (event: any, ctx: any) => unknown;
+import { expect, test } from "bun:test";
+import { latestPoints, metric } from "./collector.ts";
+import { decodeAttributes } from "./otlp-json.ts";
+import { assistant, loadExtension, toolEnd, useCollector } from "./pi-harness.ts";
 
 const MAIN = { "pi.session.kind": "main" };
-const MAIN_PROMPT = "You are Pi, a coding agent.";
 
-// The extension creates one telemetry core per process, so every test shares this collector and uses its own provider or tool names.
-let receiver: Collector;
+const collector = useCollector();
 
-beforeAll(() => {
-  receiver = new Collector();
-  configure(receiver.url);
-});
-
-afterAll(async () => {
-  resetConfig();
-  await receiver.stop();
-  // Another test file that loads the extension must get a core bound to its own collector.
-  Reflect.deleteProperty(globalThis, Symbol.for("pi-otlp"));
-});
-
-// Loads the extension the way Pi does and returns a function that delivers Pi events to it.
-function loadExtension(
-  systemPrompt = MAIN_PROMPT,
-): (event: { type: string; [key: string]: unknown }) => Promise<void> {
-  const handlers = new Map<string, Handler>();
-  piOtlp({
-    on: (name: string, handler: Handler) => {
-      handlers.set(name, handler);
-      return () => handlers.delete(name);
-    },
-  });
-  const ctx = { getSystemPrompt: () => systemPrompt };
-  return async (event) => {
-    await handlers.get(event.type)?.(event, ctx);
-  };
-}
-
-function assistant(provider: string, fields: Record<string, unknown>) {
-  return {
-    type: "message_end",
-    message: {
-      role: "assistant",
-      provider,
-      model: "claude",
-      stopReason: "stop",
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
-      ...fields,
-    },
-  };
-}
-
-function toolEnd(toolName: string, isError: boolean, durationMs?: number) {
-  return { type: "tool_execution_end", toolCallId: "call", toolName, isError, durationMs };
-}
-
-function decode(value: any): unknown {
-  if (value.intValue !== undefined) {
-    return Number(value.intValue);
-  }
-  return value.stringValue ?? value.boolValue ?? value.doubleValue;
-}
-
-function decodeAttributes(attributes: any[]): Record<string, unknown> {
-  return Object.fromEntries(attributes.map((kv) => [kv.key, decode(kv.value)]));
-}
-
-// The latest data point of each series of a metric whose attributes include every entry of the filter.
 function dataPoints(name: string, filter: Record<string, unknown>): any[] {
-  const found = metric(receiver.bodies("/v1/metrics").at(-1), name);
+  const found = metric(collector().bodies("/v1/metrics").at(-1), name);
   const points = latestPoints(found?.sum?.dataPoints ?? found?.histogram?.dataPoints ?? []);
   return points.filter((point) => {
     const attributes = decodeAttributes(point.attributes);
@@ -223,9 +161,9 @@ test("tells tools that failed while running from tools that never ran", async ()
 
 test("labels a pi-subagents child with its own agent name, after any inherited tag", async () => {
   const main = loadExtension();
-  const child = loadExtension(
-    `<active_agent name="worker"/>\n\nParent prompt.\n\n<active_agent name="Explore"/>\n\nChild prompt quoting the tag: \`<active_agent name="x"/>\`.`,
-  );
+  const child = loadExtension({
+    systemPrompt: `<active_agent name="worker"/>\n\nParent prompt.\n\n<active_agent name="Explore"/>\n\nChild prompt quoting the tag: \`<active_agent name="x"/>\`.`,
+  });
   await main({ type: "session_start" });
   await child({ type: "session_start" });
 

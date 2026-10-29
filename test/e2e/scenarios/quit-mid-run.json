@@ -1,0 +1,11 @@
+{
+  "description": "Pi quits while a tool still runs, so the open spans end as interrupted and the final flush exports them",
+  "steps": [{ "start": "hang" }, { "sleepMs": 1500 }],
+  "expect": {
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 100,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"toolUse\",pi_session_kind=\"main\"}": 1
+  },
+  "traces": [
+    "invoke_agent pi[pi.interrupted=true](pi.turn[pi.interrupted=true](chat faux-1,execute_tool bash[pi.interrupted=true]))"
+  ]
+}

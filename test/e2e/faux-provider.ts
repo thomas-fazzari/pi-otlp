@@ -9,9 +9,11 @@ export const PROVIDER = "faux-test";
 export const MODEL = "faux-1";
 const RESPONSE_DELAY_MS = 30;
 const SPAWN_KEYWORD = "spawn";
-const BLOCKED_TOOL = "bash";
+const HANG_KEYWORD = "hang";
+const BLOCKED_COMMAND = "true";
+const HANG_COMMAND = "sleep 300";
 
-// The transcript since the last user message picks the step: "spawn" calls Agent once, other prompts call read, then a blocked bash, then answer.
+// The transcript since the last user message picks the step: "spawn" calls Agent once, "hang" runs a long bash, other prompts call read, then a blocked bash, then answer.
 function nextContent(context: TranscriptContext): AssistantMessage["content"] {
   const lastUser = context.messages.findLastIndex((message) => message.role === "user");
   const prompt = JSON.stringify(context.messages[lastUser]?.content ?? "");
@@ -19,6 +21,9 @@ function nextContent(context: TranscriptContext): AssistantMessage["content"] {
     .slice(lastUser)
     .filter((message) => message.role === "toolResult").length;
   const id = `call_${crypto.randomUUID().slice(0, 8)}`;
+  if (prompt.includes(HANG_KEYWORD)) {
+    return [{ type: "toolCall", id, name: "bash", arguments: { command: HANG_COMMAND } }];
+  }
   if (prompt.includes(SPAWN_KEYWORD)) {
     if (results > 0) {
       return [{ type: "text", text: "done" }];
@@ -35,13 +40,15 @@ function nextContent(context: TranscriptContext): AssistantMessage["content"] {
     return [{ type: "toolCall", id, name: "read", arguments: { path: "README.md" } }];
   }
   if (results === 1) {
-    return [{ type: "toolCall", id, name: BLOCKED_TOOL, arguments: { command: "true" } }];
+    return [{ type: "toolCall", id, name: "bash", arguments: { command: BLOCKED_COMMAND } }];
   }
   return [{ type: "text", text: "done" }];
 }
 
 function respond(model: Model<string>, context: TranscriptContext) {
   const stream = createAssistantMessageEventStream();
+  // Providers date a message from the request start, and Pi times it only if that is not before the stream exists.
+  const requestStart = Date.now();
   setTimeout(() => {
     const content = nextContent(context);
     const toolTurn = content[0]?.type === "toolCall";
@@ -68,7 +75,7 @@ function respond(model: Model<string>, context: TranscriptContext) {
         },
       },
       stopReason: toolTurn ? "toolUse" : "stop",
-      timestamp: Date.now(),
+      timestamp: requestStart,
     };
     stream.push({ type: "start", partial: { ...message, content: [] } });
     const block = content[0];
@@ -107,7 +114,7 @@ export default function fauxProvider(pi: ExtensionAPI): void {
     streamSimple: respond,
   });
   pi.on("tool_call", (event) => {
-    if (event.toolName !== BLOCKED_TOOL) {
+    if (event.toolName !== "bash" || event.input["command"] !== BLOCKED_COMMAND) {
       return undefined;
     }
     return { block: true, reason: "blocked by the e2e provider" };

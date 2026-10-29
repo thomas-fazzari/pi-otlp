@@ -1,21 +1,29 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
-// Drives a real Pi with the scripted provider through a proxy to otel-lgtm, then checks exact increase() values.
+// Drives a real Pi with the scripted provider through a proxy to otel-lgtm, then checks exact increase() values and trace trees.
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { spanTrees } from "../span-tree.ts";
+import type { TreeSpan } from "../span-tree.ts";
 import { MODEL, PROVIDER } from "./faux-provider.ts";
 
 const LGTM_IMAGE = "grafana/otel-lgtm:0.38.0";
 const CONTAINER = `pi-otlp-e2e-${process.pid}`;
 const LGTM_OTLP_PORT = "4318/tcp";
 const LGTM_PROMETHEUS_PORT = "9090/tcp";
+const LGTM_TEMPO_PORT = "3200/tcp";
 const READY_TIMEOUT_MS = 120_000;
 const POLL_MS = 500;
 const STEP_TIMEOUT_MS = 60_000;
 // The collector in otel-lgtm batches metrics before it writes them to Prometheus.
 const INGEST_TIMEOUT_MS = 30_000;
+// Tempo search only finds a trace once its ingester flushes it, which takes about 20 s.
+const TRACE_SEARCH_TIMEOUT_MS = 90_000;
+const TRACE_SEARCH_LIMIT = 100;
+const TRACE_POLL_MS = 2000;
+const RANGE_PADDING_SECONDS = 60;
 const RANGE = "1h";
 const TOLERANCE = 1e-9;
 const MS_PER_SECOND = 1000;
@@ -33,6 +41,7 @@ type CollectorMode = "accept" | "refuse" | "ingest-then-refuse";
 
 type Step =
   | { prompt: string }
+  | { start: string }
   | { sleepMs: number }
   | { session: "new" | "switch-to-first" | "fork-first-message" }
   | { collector: CollectorMode };
@@ -42,6 +51,7 @@ interface Scenario {
   metricExportIntervalMs?: number;
   steps: Step[];
   expect: Record<string, number>;
+  traces: string[];
 }
 
 async function run(command: string[]): Promise<string> {
@@ -60,11 +70,15 @@ async function run(command: string[]): Promise<string> {
 interface Lgtm {
   otlpUrl: string;
   prometheusUrl: string;
+  tempoUrl: string;
 }
 
 async function lgtmReady(lgtm: Lgtm): Promise<boolean> {
   try {
     const prometheus = await fetch(`${lgtm.prometheusUrl}/-/ready`, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const tempo = await fetch(`${lgtm.tempoUrl}/ready`, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const otlp = await fetch(`${lgtm.otlpUrl}/v1/metrics`, {
@@ -73,7 +87,7 @@ async function lgtmReady(lgtm: Lgtm): Promise<boolean> {
       body: JSON.stringify({ resourceMetrics: [] }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    return prometheus.ok && otlp.ok;
+    return prometheus.ok && tempo.ok && otlp.ok;
   } catch {
     return false;
   }
@@ -84,7 +98,7 @@ async function hostUrl(containerPort: string): Promise<string> {
   return `http://${binding}`;
 }
 
-// A fresh container per scenario, on ports Docker picks, so Prometheus holds only that scenario's samples.
+// A fresh container per scenario, on ports Docker picks, so Prometheus and Tempo hold only that scenario's data.
 async function startLgtm(): Promise<Lgtm> {
   await run(["docker", "rm", "-f", CONTAINER]);
   await run([
@@ -97,11 +111,14 @@ async function startLgtm(): Promise<Lgtm> {
     `127.0.0.1::${LGTM_OTLP_PORT}`,
     "-p",
     `127.0.0.1::${LGTM_PROMETHEUS_PORT}`,
+    "-p",
+    `127.0.0.1::${LGTM_TEMPO_PORT}`,
     LGTM_IMAGE,
   ]);
   const lgtm = {
     otlpUrl: await hostUrl(LGTM_OTLP_PORT),
     prometheusUrl: await hostUrl(LGTM_PROMETHEUS_PORT),
+    tempoUrl: await hostUrl(LGTM_TEMPO_PORT),
   };
   const deadline = performance.now() + READY_TIMEOUT_MS;
   while (!(await lgtmReady(lgtm))) {
@@ -349,6 +366,8 @@ async function runStep(
 ): Promise<void> {
   if ("prompt" in step) {
     await pi.prompt(step.prompt);
+  } else if ("start" in step) {
+    await pi.request({ type: "prompt", message: step.start });
   } else if ("sleepMs" in step) {
     await Bun.sleep(step.sleepMs);
   } else if ("collector" in step) {
@@ -435,6 +454,70 @@ async function checkScenario(
   }
 }
 
+async function tempoGet(tempoUrl: string, path: string): Promise<any> {
+  const response = await fetch(`${tempoUrl}${path}`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  return response.json();
+}
+
+// The span trees of every trace Tempo holds for service pi since the given time, one line per root span.
+async function traceTrees(tempoUrl: string, sinceSeconds: number): Promise<string[]> {
+  const params = new URLSearchParams({
+    tags: "service.name=pi",
+    limit: String(TRACE_SEARCH_LIMIT),
+    start: String(Math.floor(sinceSeconds)),
+    end: String(Math.ceil(Date.now() / MS_PER_SECOND) + RANGE_PADDING_SECONDS),
+  });
+  const search = await tempoGet(tempoUrl, `/api/search?${params.toString()}`);
+  const found: any[] = search.traces ?? [];
+  const ids = new Set<string>(found.map((trace) => trace.traceID));
+  const trees: string[] = [];
+  for (const id of ids) {
+    const { trace } = await tempoGet(tempoUrl, `/api/v2/traces/${id}`);
+    const resources: any[] = trace.resourceSpans;
+    const spans: TreeSpan[] = resources
+      .flatMap((resource) => resource.scopeSpans)
+      .flatMap((scope) => scope.spans)
+      .map((span) => ({ ...span, attributes: span.attributes ?? [] }));
+    trees.push(...spanTrees(spans));
+  }
+  return trees.toSorted();
+}
+
+// Polls Tempo until its trace trees equal the expected ones or the search had enough time, then prints the comparison.
+async function checkTraces(
+  tempoUrl: string,
+  expected: string[],
+  sinceSeconds: number,
+): Promise<boolean> {
+  const wanted = expected.toSorted();
+  const deadline = performance.now() + TRACE_SEARCH_TIMEOUT_MS;
+  let actual: string[] = [];
+  for (;;) {
+    actual = await traceTrees(tempoUrl, sinceSeconds);
+    if (JSON.stringify(actual) === JSON.stringify(wanted) || performance.now() > deadline) {
+      break;
+    }
+    await Bun.sleep(TRACE_POLL_MS);
+  }
+  const passed = JSON.stringify(actual) === JSON.stringify(wanted);
+  if (passed) {
+    for (const tree of actual) {
+      console.log(`  ok   trace ${tree}`);
+    }
+    return true;
+  }
+  for (const tree of wanted) {
+    console.log(`  want trace ${tree}`);
+  }
+  for (const tree of actual) {
+    console.log(`  got  trace ${tree}`);
+  }
+  console.log("  FAIL the traces in Tempo differ");
+  return false;
+}
+
 async function runScenario(name: string): Promise<boolean> {
   const scenario: Scenario = await Bun.file(join(SCENARIOS_DIR, `${name}.json`)).json();
   console.log(`${name}: ${scenario.description}`);
@@ -442,6 +525,7 @@ async function runScenario(name: string): Promise<boolean> {
     throw new Error(`${name} has no expectations`);
   }
   const lgtm = await startLgtm();
+  const startedAt = Date.now() / MS_PER_SECOND - RANGE_PADDING_SECONDS;
   const proxy = startProxy(lgtm.otlpUrl);
   const { cwd, agentDir, env } = await piEnvironment(proxy.url, scenario);
   const pi = new PiRpc(cwd, env);
@@ -463,7 +547,8 @@ async function runScenario(name: string): Promise<boolean> {
   }
   // The last metrics request forwarded before Pi exited is the final flush.
   const finalFlush = proxy.lastForwardedMetricsSeconds();
-  return (await checkScenario(lgtm.prometheusUrl, scenario.expect, finalFlush)) && passed;
+  passed = (await checkScenario(lgtm.prometheusUrl, scenario.expect, finalFlush)) && passed;
+  return (await checkTraces(lgtm.tempoUrl, scenario.traces, startedAt)) && passed;
 }
 
 if (!(await Bun.file(join(PI_SUBAGENTS_DIR, "package.json")).exists())) {

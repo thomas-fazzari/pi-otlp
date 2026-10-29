@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
-import type { MessageEndEvent, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
+import type { ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 import type { Attributes } from "./attributes.ts";
 import type { Counter } from "./metrics.ts";
+import { stopReasonErrorType, toolErrorType } from "./pi-conventions.ts";
+import type { AssistantMessage } from "./pi-conventions.ts";
 import {
   ATTR_ERROR_TYPE,
   ATTR_GEN_AI_OPERATION_NAME,
@@ -19,8 +21,6 @@ import {
 } from "./semconv.ts";
 import type { Telemetry } from "./telemetry.ts";
 
-type AssistantMessage = Extract<MessageEndEvent["message"], { role: "assistant" }>;
-
 const METRIC_PI_TOKEN_USAGE = "pi.token.usage";
 const METRIC_PI_COST = "pi.cost";
 const METRIC_PI_TOOL_CALLS = "pi.tool.calls";
@@ -29,12 +29,6 @@ const ATTR_PI_STOP_REASON = "pi.stop_reason";
 const TOKEN_TYPE_CACHE_READ = "cache_read";
 const TOKEN_TYPE_CACHE_WRITE = "cache_write";
 const TOKEN_TYPE_CACHE_WRITE_1H = "cache_write_1h";
-const TOOL_ERROR = "tool_error";
-const TOOL_NOT_RUN = "not_run";
-const FAILED_STOP_REASONS: ReadonlySet<AssistantMessage["stopReason"]> = new Set([
-  "error",
-  "aborted",
-]);
 const MS_PER_SECOND = 1000;
 // The bucket boundaries that the semantic conventions advise for gen_ai.client.operation.duration.
 const MODEL_DURATION_BUCKETS = [
@@ -98,12 +92,16 @@ export function createPiMetrics(telemetry: Telemetry, session: Attributes): PiMe
         [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_CHAT,
         [ATTR_GEN_AI_RESPONSE_MODEL]: message.responseModel ?? message.model,
         [ATTR_PI_STOP_REASON]: message.stopReason,
-        ...stopReasonError(message.stopReason),
+        ...errorTypeAttribute(stopReasonErrorType(message.stopReason)),
       });
     },
 
     recordToolExecution(event) {
-      const tool = { ...session, [ATTR_GEN_AI_TOOL_NAME]: event.toolName, ...toolError(event) };
+      const tool = {
+        ...session,
+        [ATTR_GEN_AI_TOOL_NAME]: event.toolName,
+        ...errorTypeAttribute(toolErrorType(event)),
+      };
       toolCalls.add(1, tool);
       if (event.durationMs !== undefined) {
         toolDuration.record(event.durationMs / MS_PER_SECOND, tool);
@@ -119,19 +117,9 @@ function addNonZero(counter: Counter, value: number, attributes: Attributes): vo
   counter.add(value, attributes);
 }
 
-function toolError(event: ToolExecutionEndEvent): Attributes {
-  if (!event.isError) {
+function errorTypeAttribute(errorType: string | undefined): Attributes {
+  if (errorType === undefined) {
     return {};
   }
-  if (event.durationMs === undefined) {
-    return { [ATTR_ERROR_TYPE]: TOOL_NOT_RUN };
-  }
-  return { [ATTR_ERROR_TYPE]: TOOL_ERROR };
-}
-
-function stopReasonError(stopReason: AssistantMessage["stopReason"]): Attributes {
-  if (!FAILED_STOP_REASONS.has(stopReason)) {
-    return {};
-  }
-  return { [ATTR_ERROR_TYPE]: stopReason };
+  return { [ATTR_ERROR_TYPE]: errorType };
 }

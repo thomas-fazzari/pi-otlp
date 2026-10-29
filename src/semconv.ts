@@ -5,12 +5,22 @@
 
 export const ATTR_ERROR_TYPE = "error.type";
 export const ATTR_GEN_AI_AGENT_NAME = "gen_ai.agent.name";
+export const ATTR_GEN_AI_CONVERSATION_ID = "gen_ai.conversation.id";
 export const ATTR_GEN_AI_OPERATION_NAME = "gen_ai.operation.name";
 export const ATTR_GEN_AI_PROVIDER_NAME = "gen_ai.provider.name";
 export const ATTR_GEN_AI_REQUEST_MODEL = "gen_ai.request.model";
+export const ATTR_GEN_AI_RESPONSE_FINISH_REASONS = "gen_ai.response.finish_reasons";
+export const ATTR_GEN_AI_RESPONSE_ID = "gen_ai.response.id";
 export const ATTR_GEN_AI_RESPONSE_MODEL = "gen_ai.response.model";
 export const ATTR_GEN_AI_TOKEN_TYPE = "gen_ai.token.type";
+export const ATTR_GEN_AI_TOOL_CALL_ID = "gen_ai.tool.call.id";
 export const ATTR_GEN_AI_TOOL_NAME = "gen_ai.tool.name";
+export const ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS =
+  "gen_ai.usage.cache_creation.input_tokens";
+export const ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = "gen_ai.usage.cache_read.input_tokens";
+export const ATTR_GEN_AI_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens";
+export const ATTR_GEN_AI_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens";
+export const ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS = "gen_ai.usage.reasoning.output_tokens";
 export const ATTR_OTEL_COMPONENT_TYPE = "otel.component.type";
 export const ATTR_SERVICE_INSTANCE_ID = "service.instance.id";
 export const ATTR_SERVICE_NAME = "service.name";
@@ -19,6 +29,8 @@ export const ATTR_SERVICE_VERSION = "service.version";
 export const ERROR_TYPE_VALUE_OTHER = "_OTHER";
 
 export const GEN_AI_OPERATION_NAME_VALUE_CHAT = "chat";
+export const GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL = "execute_tool";
+export const GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT = "invoke_agent";
 export const GEN_AI_TOKEN_TYPE_VALUE_INPUT = "input";
 export const GEN_AI_TOKEN_TYPE_VALUE_OUTPUT = "output";
 
