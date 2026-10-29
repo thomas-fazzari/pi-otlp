@@ -15,12 +15,9 @@
 !/lefthook.yml
 !/mise.toml
 !/package.json
+!/pi-otlp.code-workspace
 !/tsconfig.json
 
-!/.vscode/
-!/.vscode/extensions.json
-!/.vscode/settings.json
-!/.vscode/tasks.json
 !/.pi/
 !/.pi/extensions/
 !/.pi/extensions/format.ts
