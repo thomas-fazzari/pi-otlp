@@ -1,0 +1,136 @@
+name: CI and release
+
+on:
+  push:
+    branches: [master]
+    tags: [v*]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  # Jobs skip instead of the whole workflow, since a skipped workflow leaves required checks pending
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+          if [[ "$EVENT" == pull_request || ( "$EVENT" == push && "$REF_TYPE" == branch ) ]] \
+            && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            if ! git diff --name-only "$BASE" "$GITHUB_SHA" | grep -qvE '^(README\.md|AGENTS\.md|CONTRIBUTING\.md|LICENSE$)'; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: mise run install
+      - run: mise run check
+
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: mise run install
+      - name: Install pi-subagents and put Pi on PATH
+        run: mise run ci:pi
+      - run: mise run e2e
+
+  pack:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: jdx/mise-action@v5.2.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: mise run install
+      - name: Pack and load the npm package
+        run: mise run ci:pack
+
+  # The only check the master ruleset requires
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [changes, check, e2e, pack]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to pass or be skipped
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
+
+  release:
+    name: Publish GitHub release
+    if: github.ref_type == 'tag'
+    needs: [check, e2e, pack]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          install: false
+      - name: Check the version tag
+        run: mise run ci:version
+      - name: Publish the release with the Grafana dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: mise run ci:release
+
+  npm:
+    name: Publish npm package
+    if: github.ref_type == 'tag'
+    needs: [check, e2e, pack]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          install: false
+      - name: Set package version
+        run: mise run ci:version
+      # Trusted publishing exchanges the job's OIDC token, so the job needs no npm token
+      - name: Publish to npm
+        run: mise run ci:publish

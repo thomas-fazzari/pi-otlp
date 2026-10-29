@@ -4,9 +4,10 @@ pi-otlp is an extension for the Pi coding agent that exports OpenTelemetry metri
 
 ## Repo layout
 
-- `src`: the extension. `src/index.ts` is the entry point that `package.json` declares to Pi.
+- `src`: the extension (`src/index.ts` is the entry point that `package.json` declares to Pi).
 - `test`: tests that `bun test` runs.
 - `scripts`: repository scripts, also run as mise tasks.
+- `scripts/ci`: the CI steps that `.github/workflows/ci.yml` runs as `ci:*` mise tasks.
 
 ## Code guidelines
 

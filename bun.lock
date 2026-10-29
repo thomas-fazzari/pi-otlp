@@ -15,6 +15,9 @@
         "oxlint-tsgolint": "7.0.2003",
         "typescript": "7.0.2",
       },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
     },
   },
   "packages": {

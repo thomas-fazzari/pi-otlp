@@ -1,7 +1,32 @@
 {
-  "name": "pi-otlp",
-  "private": true,
+  "name": "@thomas-fazzari/pi-otlp",
+  "version": "0.0.0",
+  "description": "Pi extension that exports OpenTelemetry metrics, traces and logs over OTLP/HTTP",
+  "keywords": [
+    "grafana",
+    "observability",
+    "opentelemetry",
+    "otlp",
+    "pi",
+    "pi-extension",
+    "pi-package"
+  ],
+  "homepage": "https://github.com/thomas-fazzari/pi-otlp#readme",
+  "bugs": {
+    "url": "https://github.com/thomas-fazzari/pi-otlp/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thomas-fazzari/pi-otlp.git"
+  },
+  "files": [
+    "src"
+  ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
@@ -12,6 +37,9 @@
     "oxlint": "1.86.0",
     "oxlint-tsgolint": "7.0.2003",
     "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   },
   "packageManager": "bun@1.4.4",
   "pi": {

@@ -8,6 +8,7 @@
 !/.oxfmtrc.json
 !/.oxlintrc.json
 !/AGENTS.md
+!/CONTRIBUTING.md
 !/LICENSE
 !/README.md
 !/bun.lock
@@ -17,6 +18,9 @@
 !/package.json
 !/pi-otlp.code-workspace
 !/tsconfig.json
+
+!/.github/
+!/.github/**
 
 !/.pi/
 !/.pi/extensions/

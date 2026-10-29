@@ -5,6 +5,8 @@ config:
     siblings_only: true
 globs:
   - AGENTS.md
+  - CONTRIBUTING.md
+  - README.md
 ignores:
   - "**/node_modules/**"
   - LICENSE
