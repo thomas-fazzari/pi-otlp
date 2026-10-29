@@ -7,7 +7,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { asDouble } from "./attributes.ts";
 import type { Attributes, AttributeValue } from "./attributes.ts";
-import { ATTR_PI_SESSION_KIND, stopReasonErrorType, toolErrorType } from "./pi-conventions.ts";
+import {
+  ATTR_PI_SESSION_KIND,
+  stopReasonErrorType,
+  toolErrorType,
+  usageAttributes,
+} from "./pi-conventions.ts";
 import type { AssistantMessage } from "./pi-conventions.ts";
 import {
   ATTR_ERROR_TYPE,
@@ -21,18 +26,13 @@ import {
   ATTR_GEN_AI_RESPONSE_MODEL,
   ATTR_GEN_AI_TOOL_CALL_ID,
   ATTR_GEN_AI_TOOL_NAME,
-  ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
-  ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
-  ATTR_GEN_AI_USAGE_INPUT_TOKENS,
-  ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
-  ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS,
   GEN_AI_OPERATION_NAME_VALUE_CHAT,
   GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
   GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
 } from "./semconv.ts";
 import type { Session } from "./session-kind.ts";
 import type { Telemetry } from "./telemetry.ts";
-import type { Span, SpanOptions, SpanResult } from "./traces.ts";
+import type { Span, SpanContext, SpanOptions, SpanResult } from "./traces.ts";
 
 const MAIN_AGENT_NAME = "pi";
 const TURN_SPAN_NAME = "pi.turn";
@@ -50,10 +50,11 @@ export interface PiTraces {
   agentSettled(aborted: boolean): void;
   turnStart(turnIndex: number, timestamp: number): void;
   turnEnd(): void;
-  assistantMessage(message: AssistantMessage): void;
+  assistantMessage(message: AssistantMessage): SpanContext | undefined;
   toolStart(event: ToolExecutionStartEvent): void;
   toolEnd(event: ToolExecutionEndEvent): void;
   interrupt(): void;
+  activeContext(): SpanContext | undefined;
 }
 
 export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiTraces {
@@ -148,7 +149,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
 
     assistantMessage(message) {
       if (message.durationMs === undefined) {
-        return;
+        return undefined;
       }
       const errorType = stopReasonErrorType(message.stopReason);
       const span = telemetry.startSpan(`${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${message.model}`, {
@@ -161,6 +162,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
         endTimeMs: message.timestamp + message.durationMs,
         ...errorResult(errorType),
       });
+      return span.context;
     },
 
     toolStart(event) {
@@ -189,29 +191,25 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
       endAllExcept(undefined, { [ATTR_PI_INTERRUPTED]: true });
       run = undefined;
     },
+
+    activeContext() {
+      return [...open].at(-1)?.context;
+    },
   };
 }
 
 function chatAttributes(message: AssistantMessage): Attributes {
-  const { usage } = message;
   const attributes: Record<string, AttributeValue> = {
     [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_CHAT,
     [ATTR_GEN_AI_PROVIDER_NAME]: message.provider,
     [ATTR_GEN_AI_REQUEST_MODEL]: message.model,
     [ATTR_GEN_AI_RESPONSE_MODEL]: message.responseModel ?? message.model,
     [ATTR_GEN_AI_RESPONSE_FINISH_REASONS]: [message.stopReason],
-    // The convention counts cached input tokens in gen_ai.usage.input_tokens, and Pi reports them apart.
-    [ATTR_GEN_AI_USAGE_INPUT_TOKENS]: usage.input + usage.cacheRead + usage.cacheWrite,
-    [ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]: usage.output,
-    [ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS]: usage.cacheRead,
-    [ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS]: usage.cacheWrite,
-    [ATTR_PI_COST_USD]: asDouble(usage.cost.total),
+    ...usageAttributes(message.usage),
+    [ATTR_PI_COST_USD]: asDouble(message.usage.cost.total),
   };
   if (message.responseId !== undefined) {
     attributes[ATTR_GEN_AI_RESPONSE_ID] = message.responseId;
-  }
-  if (usage.reasoning !== undefined) {
-    attributes[ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS] = usage.reasoning;
   }
   return attributes;
 }

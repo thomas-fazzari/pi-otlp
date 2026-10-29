@@ -9,10 +9,11 @@ import type { SpanContext } from "./traces.ts";
 import { nowUnixNanos } from "./utils/time.ts";
 
 export interface LogRecord {
+  eventName: string;
   severity: keyof typeof SEVERITY_NUMBER;
   body: string;
   attributes?: Attributes;
-  context?: SpanContext;
+  context?: SpanContext | undefined;
 }
 
 export function encodeLogRecord(record: LogRecord): otlp.LogRecord {
@@ -22,6 +23,7 @@ export function encodeLogRecord(record: LogRecord): otlp.LogRecord {
     observedTimeUnixNano: time,
     severityNumber: SEVERITY_NUMBER[record.severity],
     severityText: record.severity.toUpperCase(),
+    eventName: record.eventName,
     body: { stringValue: record.body },
     attributes: encodeAttributes(record.attributes ?? {}),
     traceId: record.context?.traceId,

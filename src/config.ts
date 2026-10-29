@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
-import { positiveNumberFromEnv } from "./utils/env.ts";
+import { booleanFromEnv, positiveNumberFromEnv } from "./utils/env.ts";
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:4318";
 const DEFAULT_METRIC_EXPORT_INTERVAL_MS = 60_000;
@@ -15,7 +15,11 @@ interface Config {
 }
 
 export function sdkDisabled(): boolean {
-  return process.env["OTEL_SDK_DISABLED"]?.toLowerCase() === "true";
+  return booleanFromEnv("OTEL_SDK_DISABLED");
+}
+
+export function logErrorMessages(): boolean {
+  return booleanFromEnv("PI_OTLP_LOG_ERROR_MESSAGES");
 }
 
 export function readConfig(): Config {

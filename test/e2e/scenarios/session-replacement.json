@@ -17,7 +17,7 @@
   "expect": {
     "pi_tool_calls_total{gen_ai_tool_name=\"read\",pi_session_kind=\"main\"}": 4,
     "pi_tool_calls_total{gen_ai_tool_name=\"bash\",error_type=\"not_run\",pi_session_kind=\"main\"}": 4,
-    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 1200,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_request_kind=\"turn\",pi_session_kind=\"main\"}": 1200,
     "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"toolUse\",pi_session_kind=\"main\"}": 8,
     "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"stop\",pi_session_kind=\"main\"}": 4
   },
@@ -26,5 +26,15 @@
     "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))",
     "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))",
     "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))"
+  ],
+  "logs": [
+    "INFO Session started[gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=startup,pi_thinking_level_selected=off]",
+    "INFO Session shut down[gen_ai_conversation_id=#1,pi_session_kind=main,pi_session_shutdown_reason=new]",
+    "INFO Session started[gen_ai_conversation_id=#2,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=new,pi_thinking_level_selected=off]",
+    "INFO Session shut down[gen_ai_conversation_id=#2,pi_session_kind=main,pi_session_shutdown_reason=resume]",
+    "INFO Session started[gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=resume,pi_thinking_level_selected=off]",
+    "INFO Session shut down[gen_ai_conversation_id=#1,pi_session_kind=main,pi_session_shutdown_reason=fork]",
+    "INFO Session started[gen_ai_conversation_id=#3,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=fork,pi_thinking_level_selected=off]",
+    "INFO Session shut down[gen_ai_conversation_id=#3,pi_session_kind=main,pi_session_shutdown_reason=quit]"
   ]
 }

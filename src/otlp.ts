@@ -100,6 +100,7 @@ export interface LogRecord {
   observedTimeUnixNano: Int64;
   severityNumber: (typeof SEVERITY_NUMBER)[keyof typeof SEVERITY_NUMBER];
   severityText: string;
+  eventName: string;
   body: AnyValue;
   attributes: KeyValue[];
   traceId: string | undefined;

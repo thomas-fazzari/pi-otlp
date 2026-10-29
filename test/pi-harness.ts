@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { afterAll, beforeAll } from "bun:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import piOtlp from "../src/index.ts";
 import { Collector, configure, resetConfig } from "./collector.ts";
 
@@ -31,17 +32,26 @@ export function useCollector(): () => Collector {
 }
 
 // Loads the extension the way Pi does and returns a function that delivers Pi events to it.
-export function loadExtension(options: { systemPrompt?: string; sessionId?: string } = {}): Emit {
+export function loadExtension(
+  options: {
+    systemPrompt?: string;
+    sessionId?: string;
+    model?: { provider: string; id: string };
+    thinkingLevel?: ReturnType<ExtensionAPI["getThinkingLevel"]>;
+  } = {},
+): Emit {
   const handlers = new Map<string, Handler>();
   piOtlp({
     on: (name: string, handler: Handler) => {
       handlers.set(name, handler);
       return () => handlers.delete(name);
     },
+    getThinkingLevel: () => options.thinkingLevel ?? "off",
   });
   const ctx = {
     getSystemPrompt: () => options.systemPrompt ?? MAIN_PROMPT,
     sessionManager: { getSessionId: () => options.sessionId ?? "session" },
+    model: options.model,
   };
   return async (event) => {
     await handlers.get(event.type)?.(event, ctx);

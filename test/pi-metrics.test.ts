@@ -71,8 +71,9 @@ test("counts disjoint token types and cost, and creates no series for zero value
   await emit({ type: "session_shutdown", reason: "quit" });
 
   const provider = { "gen_ai.provider.name": "tokens" };
-  const claude = { ...MAIN, ...provider, "gen_ai.request.model": "claude" };
-  const free = { ...MAIN, ...provider, "gen_ai.request.model": "free" };
+  const turn = { ...MAIN, ...provider, "pi.request.kind": "turn" };
+  const claude = { ...turn, "gen_ai.request.model": "claude" };
+  const free = { ...turn, "gen_ai.request.model": "free" };
   expect(sums("pi.token.usage", provider)).toEqual([
     { attributes: { ...claude, "gen_ai.token.type": "input" }, value: 105 },
     { attributes: { ...claude, "gen_ai.token.type": "output" }, value: 21 },
@@ -82,6 +83,57 @@ test("counts disjoint token types and cost, and creates no series for zero value
     { attributes: { ...free, "gen_ai.token.type": "input" }, value: 8 },
   ]);
   expect(sums("pi.cost", provider)).toEqual([{ attributes: claude, value: 0.75 }]);
+});
+
+test("counts summary usage by request kind, without a model, even from an extension", async () => {
+  const emit = loadExtension();
+  await emit({ type: "session_start" });
+  const usage = { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, cost: { total: 0.5 } };
+
+  await emit({
+    type: "session_compact",
+    compactionEntry: { tokensBefore: 1000, usage },
+    reason: "threshold",
+    willRetry: false,
+    fromExtension: false,
+  });
+  await emit({
+    type: "session_compact",
+    compactionEntry: { tokensBefore: 1000, usage: { ...usage, cacheRead: 30 } },
+    reason: "manual",
+    willRetry: false,
+    fromExtension: true,
+  });
+  await emit({
+    type: "session_compact",
+    compactionEntry: { tokensBefore: 1000 },
+    reason: "manual",
+    willRetry: false,
+    fromExtension: true,
+  });
+  await emit({ type: "session_tree", newLeafId: "a", oldLeafId: "b", summaryEntry: { usage } });
+  await emit({ type: "session_tree", newLeafId: "b", oldLeafId: "a" });
+  await emit({ type: "session_shutdown", reason: "quit" });
+
+  const compaction = { ...MAIN, "pi.request.kind": "compaction" };
+  const branch = { ...MAIN, "pi.request.kind": "branch_summary" };
+  expect([
+    ...sums("pi.token.usage", { "pi.request.kind": "compaction" }),
+    ...sums("pi.token.usage", { "pi.request.kind": "branch_summary" }),
+  ]).toEqual([
+    { attributes: { ...compaction, "gen_ai.token.type": "input" }, value: 200 },
+    { attributes: { ...compaction, "gen_ai.token.type": "output" }, value: 40 },
+    { attributes: { ...compaction, "gen_ai.token.type": "cache_read" }, value: 30 },
+    { attributes: { ...branch, "gen_ai.token.type": "input" }, value: 100 },
+    { attributes: { ...branch, "gen_ai.token.type": "output" }, value: 20 },
+  ]);
+  expect([
+    ...sums("pi.cost", { "pi.request.kind": "compaction" }),
+    ...sums("pi.cost", { "pi.request.kind": "branch_summary" }),
+  ]).toEqual([
+    { attributes: compaction, value: 1 },
+    { attributes: branch, value: 0.5 },
+  ]);
 });
 
 test("records model request durations with the stop reason and error.type for failed requests", async () => {

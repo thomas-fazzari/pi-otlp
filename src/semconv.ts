@@ -21,6 +21,7 @@ export const ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = "gen_ai.usage.cache_rea
 export const ATTR_GEN_AI_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens";
 export const ATTR_GEN_AI_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens";
 export const ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS = "gen_ai.usage.reasoning.output_tokens";
+export const ATTR_HTTP_RESPONSE_STATUS_CODE = "http.response.status_code";
 export const ATTR_OTEL_COMPONENT_TYPE = "otel.component.type";
 export const ATTR_SERVICE_INSTANCE_ID = "service.instance.id";
 export const ATTR_SERVICE_NAME = "service.name";

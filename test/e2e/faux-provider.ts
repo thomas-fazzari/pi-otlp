@@ -10,17 +10,41 @@ export const MODEL = "faux-1";
 const RESPONSE_DELAY_MS = 30;
 const SPAWN_KEYWORD = "spawn";
 const HANG_KEYWORD = "hang";
+const FAIL_KEYWORD = "fail";
 const BLOCKED_COMMAND = "true";
 const HANG_COMMAND = "sleep 300";
+// Pi retries errors whose message looks transient, so this one must not.
+const FAILURE_MESSAGE = "the faux model rejects this prompt";
 
-// The transcript since the last user message picks the step: "spawn" calls Agent once, "hang" runs a long bash, other prompts call read, then a blocked bash, then answer.
+function lastUserIndex(context: TranscriptContext): number {
+  return context.messages.findLastIndex((message) => message.role === "user");
+}
+
+function lastPrompt(context: TranscriptContext): string {
+  return JSON.stringify(context.messages[lastUserIndex(context)]?.content ?? "");
+}
+
+// Pi asks for compaction and branch summaries without tools, and agent turns always offer some.
+function asksForSummary(context: TranscriptContext): boolean {
+  return !context.messages.some(
+    (message) => message.role === "system" && (message.toolsAdded ?? []).length > 0,
+  );
+}
+
+function fails(context: TranscriptContext): boolean {
+  return lastPrompt(context).includes(FAIL_KEYWORD) && !asksForSummary(context);
+}
+
+// The transcript since the last user message picks the step: summaries get text, "spawn" calls Agent once, "hang" runs a long bash, other prompts call read, then a blocked bash, then answer.
 function nextContent(context: TranscriptContext): AssistantMessage["content"] {
-  const lastUser = context.messages.findLastIndex((message) => message.role === "user");
-  const prompt = JSON.stringify(context.messages[lastUser]?.content ?? "");
+  const prompt = lastPrompt(context);
   const results = context.messages
-    .slice(lastUser)
+    .slice(lastUserIndex(context))
     .filter((message) => message.role === "toolResult").length;
   const id = `call_${crypto.randomUUID().slice(0, 8)}`;
+  if (asksForSummary(context)) {
+    return [{ type: "text", text: "summary" }];
+  }
   if (prompt.includes(HANG_KEYWORD)) {
     return [{ type: "toolCall", id, name: "bash", arguments: { command: HANG_COMMAND } }];
   }
@@ -78,6 +102,17 @@ function respond(model: Model<string>, context: TranscriptContext) {
       timestamp: requestStart,
     };
     stream.push({ type: "start", partial: { ...message, content: [] } });
+    if (fails(context)) {
+      const error: AssistantMessage = {
+        ...message,
+        content: [],
+        stopReason: "error",
+        errorMessage: FAILURE_MESSAGE,
+      };
+      stream.push({ type: "error", reason: "error", error });
+      stream.end();
+      return;
+    }
     const block = content[0];
     if (block?.type === "toolCall") {
       stream.push({ type: "toolcall_start", contentIndex: 0, partial: message });
@@ -112,6 +147,19 @@ export default function fauxProvider(pi: ExtensionAPI): void {
       },
     ],
     streamSimple: respond,
+  });
+  // RPC has no tree navigation command, so the e2e reaches a branch summary through this one.
+  pi.registerCommand("e2e-branch-summary", {
+    description: "Go back to the first prompt and summarize the abandoned branch",
+    handler: async (_args, ctx) => {
+      const first = ctx.sessionManager
+        .getEntries()
+        .find((entry) => entry.type === "message" && entry.message.role === "user");
+      if (first === undefined) {
+        throw new Error("the session has no prompt to go back to");
+      }
+      await ctx.navigateTree(first.id, { summarize: true });
+    },
   });
   pi.on("tool_call", (event) => {
     if (event.toolName !== "bash" || event.input["command"] !== BLOCKED_COMMAND) {

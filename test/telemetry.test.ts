@@ -85,6 +85,7 @@ test("encodes metrics, spans and logs as OTLP JSON", async () => {
   child.end({ status: { code: "error", message: "boom" } });
   parent.end();
   telemetry.emitLog({
+    eventName: "test.event",
     severity: "warn",
     body: "hello",
     attributes: { ratio: 0.5 },
@@ -235,6 +236,7 @@ test("encodes metrics, spans and logs as OTLP JSON", async () => {
                 {
                   timeUnixNano: NANOS,
                   observedTimeUnixNano: NANOS,
+                  eventName: "test.event",
                   severityNumber: 13,
                   severityText: "WARN",
                   body: { stringValue: "hello" },
@@ -335,7 +337,7 @@ test("keeps the newest 2048 spans and logs, failed batches first, until the coll
   const emit = (from: number, to: number) => {
     for (let i = from; i < to; i++) {
       telemetry.startSpan(`span-${i}`).end();
-      telemetry.emitLog({ severity: "info", body: `log-${i}` });
+      telemetry.emitLog({ eventName: "test.event", severity: "info", body: `log-${i}` });
     }
   };
 
@@ -383,7 +385,7 @@ test("counts every span and log once, at its final outcome", async () => {
   await flush();
   receiver.mode = "reject";
   for (let i = 0; i < 2050; i++) {
-    telemetry.emitLog({ severity: "info", body: `log-${i}` });
+    telemetry.emitLog({ eventName: "test.event", severity: "info", body: `log-${i}` });
   }
   await flush();
 

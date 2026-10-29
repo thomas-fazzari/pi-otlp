@@ -2,10 +2,14 @@
   "description": "Pi quits while a tool still runs, so the open spans end as interrupted and the final flush exports them",
   "steps": [{ "start": "hang" }, { "sleepMs": 1500 }],
   "expect": {
-    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_session_kind=\"main\"}": 100,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_request_kind=\"turn\",pi_session_kind=\"main\"}": 100,
     "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"toolUse\",pi_session_kind=\"main\"}": 1
   },
   "traces": [
     "invoke_agent pi[pi.interrupted=true](pi.turn[pi.interrupted=true](chat faux-1,execute_tool bash[pi.interrupted=true]))"
+  ],
+  "logs": [
+    "INFO Session started[gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=startup,pi_thinking_level_selected=off]",
+    "INFO Session shut down[gen_ai_conversation_id=#1,pi_session_kind=main,pi_session_shutdown_reason=quit]@execute_tool bash"
   ]
 }

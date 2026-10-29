@@ -5,7 +5,7 @@ import type { ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 import type { Attributes } from "./attributes.ts";
 import type { Counter } from "./metrics.ts";
 import { stopReasonErrorType, toolErrorType } from "./pi-conventions.ts";
-import type { AssistantMessage } from "./pi-conventions.ts";
+import type { AssistantMessage, Usage } from "./pi-conventions.ts";
 import {
   ATTR_ERROR_TYPE,
   ATTR_GEN_AI_OPERATION_NAME,
@@ -26,6 +26,7 @@ const METRIC_PI_COST = "pi.cost";
 const METRIC_PI_TOOL_CALLS = "pi.tool.calls";
 const METRIC_PI_TOOL_DURATION = "pi.tool.duration";
 const ATTR_PI_STOP_REASON = "pi.stop_reason";
+const ATTR_PI_REQUEST_KIND = "pi.request.kind";
 const TOKEN_TYPE_CACHE_READ = "cache_read";
 const TOKEN_TYPE_CACHE_WRITE = "cache_write";
 const TOKEN_TYPE_CACHE_WRITE_1H = "cache_write_1h";
@@ -36,8 +37,11 @@ const MODEL_DURATION_BUCKETS = [
 ];
 const TOOL_DURATION_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300];
 
+type RequestKind = "turn" | "compaction" | "branch_summary";
+
 export interface PiMetrics {
   recordAssistantMessage(message: AssistantMessage): void;
+  recordSummaryUsage(kind: Exclude<RequestKind, "turn">, usage: Usage | undefined): void;
   recordToolExecution(event: ToolExecutionEndEvent): void;
 }
 
@@ -54,6 +58,23 @@ export function createPiMetrics(telemetry: Telemetry, session: Attributes): PiMe
     boundaries: TOOL_DURATION_BUCKETS,
   });
 
+  // Disjoint token types, so that their sum is the total, and no series for a zero value.
+  function recordUsage(usage: Usage, base: Attributes, kind: RequestKind): void {
+    const attributes = { ...base, [ATTR_PI_REQUEST_KIND]: kind };
+    const cacheWrite1h = usage.cacheWrite1h ?? 0;
+    const byType = [
+      [GEN_AI_TOKEN_TYPE_VALUE_INPUT, usage.input],
+      [GEN_AI_TOKEN_TYPE_VALUE_OUTPUT, usage.output],
+      [TOKEN_TYPE_CACHE_READ, usage.cacheRead],
+      [TOKEN_TYPE_CACHE_WRITE, usage.cacheWrite - cacheWrite1h],
+      [TOKEN_TYPE_CACHE_WRITE_1H, cacheWrite1h],
+    ] as const;
+    for (const [type, value] of byType) {
+      addNonZero(tokens, value, { ...attributes, [ATTR_GEN_AI_TOKEN_TYPE]: type });
+    }
+    addNonZero(cost, usage.cost.total, attributes);
+  }
+
   return {
     recordAssistantMessage(message) {
       const model = {
@@ -61,29 +82,7 @@ export function createPiMetrics(telemetry: Telemetry, session: Attributes): PiMe
         [ATTR_GEN_AI_PROVIDER_NAME]: message.provider,
         [ATTR_GEN_AI_REQUEST_MODEL]: message.model,
       };
-      const { usage } = message;
-      const cacheWrite1h = usage.cacheWrite1h ?? 0;
-      addNonZero(tokens, usage.input, {
-        ...model,
-        [ATTR_GEN_AI_TOKEN_TYPE]: GEN_AI_TOKEN_TYPE_VALUE_INPUT,
-      });
-      addNonZero(tokens, usage.output, {
-        ...model,
-        [ATTR_GEN_AI_TOKEN_TYPE]: GEN_AI_TOKEN_TYPE_VALUE_OUTPUT,
-      });
-      addNonZero(tokens, usage.cacheRead, {
-        ...model,
-        [ATTR_GEN_AI_TOKEN_TYPE]: TOKEN_TYPE_CACHE_READ,
-      });
-      addNonZero(tokens, usage.cacheWrite - cacheWrite1h, {
-        ...model,
-        [ATTR_GEN_AI_TOKEN_TYPE]: TOKEN_TYPE_CACHE_WRITE,
-      });
-      addNonZero(tokens, cacheWrite1h, {
-        ...model,
-        [ATTR_GEN_AI_TOKEN_TYPE]: TOKEN_TYPE_CACHE_WRITE_1H,
-      });
-      addNonZero(cost, usage.cost.total, model);
+      recordUsage(message.usage, model, "turn");
       if (message.durationMs === undefined) {
         return;
       }
@@ -94,6 +93,15 @@ export function createPiMetrics(telemetry: Telemetry, session: Attributes): PiMe
         [ATTR_PI_STOP_REASON]: message.stopReason,
         ...errorTypeAttribute(stopReasonErrorType(message.stopReason)),
       });
+    },
+
+    // Pi does not say which model wrote a summary, so these series carry no provider or model.
+    // Pi gives extensions no usage for cache warming (a UsageEntry with no event), the bug-report summary or retried summary attempts.
+    recordSummaryUsage(kind, usage) {
+      if (usage === undefined) {
+        return;
+      }
+      recordUsage(usage, session, kind);
     },
 
     recordToolExecution(event) {

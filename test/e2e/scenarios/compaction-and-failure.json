@@ -1,0 +1,29 @@
+{
+  "description": "A manual compaction between two prompts, a model request that fails, then a branch summary",
+  "settings": { "compaction": { "keepRecentTokens": 1 } },
+  "steps": [
+    { "prompt": "hello" },
+    { "compact": true },
+    { "prompt": "fail" },
+    { "start": "/e2e-branch-summary" }
+  ],
+  "expect": {
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_request_kind=\"turn\",pi_session_kind=\"main\"}": 400,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_request_kind=\"compaction\",pi_session_kind=\"main\"}": 100,
+    "pi_token_usage_total{gen_ai_token_type=\"cache_write_1h\",pi_request_kind=\"compaction\",pi_session_kind=\"main\"}": 4,
+    "pi_cost_USD_total{pi_request_kind=\"compaction\",pi_session_kind=\"main\"}": 0.00066,
+    "pi_token_usage_total{gen_ai_token_type=\"input\",pi_request_kind=\"branch_summary\",pi_session_kind=\"main\"}": 100,
+    "pi_cost_USD_total{pi_request_kind=\"branch_summary\",pi_session_kind=\"main\"}": 0.00066,
+    "gen_ai_client_operation_duration_seconds_count{pi_stop_reason=\"error\",error_type=\"error\",pi_session_kind=\"main\"}": 1
+  },
+  "traces": [
+    "invoke_agent pi(pi.turn(chat faux-1,execute_tool read),pi.turn(chat faux-1,execute_tool bash[error.type=not_run]),pi.turn(chat faux-1))",
+    "invoke_agent pi(pi.turn(chat faux-1[error.type=error]))"
+  ],
+  "logs": [
+    "INFO Session started[gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=startup,pi_thinking_level_selected=off]",
+    "INFO Context compacted[gen_ai_conversation_id=#1,gen_ai_usage_cache_creation_input_tokens=10,gen_ai_usage_cache_read_input_tokens=50,gen_ai_usage_input_tokens=160,gen_ai_usage_output_tokens=20,pi_compaction_from_extension=false,pi_compaction_reason=manual,pi_compaction_tokens_before=180,pi_compaction_will_retry=false,pi_session_kind=main]",
+    "ERROR Model request failed[error_type=error,gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main]@chat faux-1",
+    "INFO Session shut down[gen_ai_conversation_id=#1,pi_session_kind=main,pi_session_shutdown_reason=quit]"
+  ]
+}

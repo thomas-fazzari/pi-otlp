@@ -5,6 +5,7 @@ import { decodeAttributes } from "./otlp-json.ts";
 
 // The OTLP JSON span fields that the tree needs, whether they come from the collector stub or from Tempo.
 export interface TreeSpan {
+  traceId: string;
   spanId: string;
   parentSpanId?: string | undefined;
   name: string;
@@ -45,7 +46,7 @@ export function spanTrees(spans: TreeSpan[]): string[] {
   return byStart(roots).map(render);
 }
 
-function byStart(spans: TreeSpan[]): TreeSpan[] {
+export function byStart(spans: TreeSpan[]): TreeSpan[] {
   return spans.toSorted((a, b) => {
     const difference = BigInt(a.startTimeUnixNano) - BigInt(b.startTimeUnixNano);
     if (difference !== 0n) {
