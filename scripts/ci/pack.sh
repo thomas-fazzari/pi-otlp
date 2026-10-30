@@ -15,7 +15,7 @@ expected="$({
   git ls-files src
 } | sort)"
 actual="$(tar -tzf "$tarball" | sed 's|^package/||' | sort)"
-if [[ "$actual" != "$expected" ]]; then
+if [[ $actual != "$expected" ]]; then
   printf 'The package must hold LICENSE, README.md, package.json and the tracked files of src only:\n' >&2
   diff <(printf '%s\n' "$expected") <(printf '%s\n' "$actual") >&2 || true
   exit 1

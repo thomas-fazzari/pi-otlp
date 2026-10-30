@@ -1,0 +1,33 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": null,
+  "timezone": "Europe/Paris",
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "3 days",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The otel-lgtm image that lgtm.sh runs",
+      "managerFilePatterns": ["/^mise\\.toml$/"],
+      "matchStrings": ["LGTM_IMAGE = \"(?<depName>[^:\"]+):(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Node version that CI scripts declare for mise",
+      "managerFilePatterns": ["/^scripts/.+\\.sh$/"],
+      "matchStrings": ["#MISE tools=\\{node=\"(?<currentValue>[^\"]+)\"\\}"],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "dependencies"
+    }
+  ]
+}

@@ -5,7 +5,7 @@
 set -euo pipefail
 dry_run="${usage_dry_run:-false}"
 
-if [[ ! "${VERSION:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+if [[ ! ${VERSION:-} =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   printf 'Set VERSION to a release version such as 0.1.0.\n' >&2
   exit 1
 fi
@@ -17,7 +17,7 @@ if [[ "$(npm view "$name@$VERSION" version 2>/dev/null)" == "$VERSION" ]]; then
   exit 0
 fi
 
-if [[ "$dry_run" != true ]]; then
+if [[ $dry_run != true ]]; then
   if [[ -n "$(git status --porcelain -- src package.json README.md LICENSE)" ]]; then
     printf 'Commit or remove the changes to the package files before you publish.\n' >&2
     exit 1
@@ -29,7 +29,7 @@ cp package.json "$backup"
 trap 'cp "$backup" package.json && rm -f "$backup"' EXIT
 npm pkg set "version=$VERSION"
 
-if [[ "$dry_run" == true ]]; then
+if [[ $dry_run == true ]]; then
   npm publish --dry-run
   exit
 fi

@@ -8,6 +8,6 @@ agent_dir="$RUNNER_TEMP/pi-agent"
 PI_CODING_AGENT_DIR="$agent_dir" PI_SKIP_VERSION_CHECK=1 \
   node_modules/.bin/pi install "npm:@tintinweb/pi-subagents@$pi_subagents_version"
 
-printf 'PI_SUBAGENTS_DIR=%s\n' "$agent_dir/npm/node_modules/@tintinweb/pi-subagents" >> "$GITHUB_ENV"
+printf 'PI_SUBAGENTS_DIR=%s\n' "$agent_dir/npm/node_modules/@tintinweb/pi-subagents" >>"$GITHUB_ENV"
 # The pi bin of the devDependency runs on Node
-printf '%s\n' "$PWD/node_modules/.bin" "$(dirname "$(command -v node)")" >> "$GITHUB_PATH"
+printf '%s\n' "$PWD/node_modules/.bin" "$(dirname "$(command -v node)")" >>"$GITHUB_PATH"
