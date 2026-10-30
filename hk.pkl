@@ -1,0 +1,55 @@
+amends "package://github.com/jdx/hk/releases/download/v2.10.0/hk@2.10.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.10.0/hk@2.10.0#/Builtins.pkl"
+
+// Steps of `hk check`, `hk fix` and the pre-commit hook. `mise run fmt` runs them on every file.
+local linters = new Mapping<String, Step> {
+  ["license-headers"] {
+    glob = "**/*.ts"
+    check = "scripts/license-headers.pl --check {{files}}"
+    fix = "scripts/license-headers.pl {{files}}"
+  }
+  ["oxfmt"] {
+    glob = "**/*.{md,json,jsonc,yml,yaml,toml,js,mjs,ts}"
+    depends = "license-headers"
+    check = "bunx --bun oxfmt --check --no-error-on-unmatched-pattern {{files}}"
+    fix = "bunx --bun oxfmt --write --no-error-on-unmatched-pattern {{files}}"
+  }
+  ["markdownlint"] {
+    glob = "**/*.md"
+    depends = "oxfmt"
+    check = "bunx --bun markdownlint-cli2 --no-globs {{files}}"
+    fix = "bunx --bun markdownlint-cli2 --no-globs --fix {{files}}"
+  }
+  ["shellcheck"] = Builtins.shellcheck
+  ["shfmt"] = Builtins.shfmt
+}
+
+local typescript = List("**/*.ts", "package.json", "bun.lock", "tsconfig.json")
+
+steps = linters
+
+hooks {
+  ["commit-msg"] {
+    steps {
+      ["commit-type"] {
+        check = "perl scripts/commit-msg.pl {{commit_msg_file}}"
+      }
+    }
+  }
+  ["pre-push"] {
+    steps = (linters) {
+      ["oxlint"] {
+        glob = typescript + List(".oxlintrc.json")
+        check = "mise run lint"
+      }
+      ["typecheck"] {
+        glob = typescript
+        check = "mise run typecheck"
+      }
+      ["test"] {
+        glob = typescript
+        check = "mise run test"
+      }
+    }
+  }
+}

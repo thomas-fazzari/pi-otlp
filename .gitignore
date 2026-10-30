@@ -2,6 +2,7 @@
 *
 
 # Except this
+!/.editorconfig
 !/.gitignore
 !/.gitattributes
 !/.markdownlint-cli2.yaml
@@ -13,7 +14,8 @@
 !/README.md
 !/bun.lock
 !/bunfig.toml
-!/lefthook.yml
+!/hk.pkl
+!/mise.lock
 !/mise.toml
 !/package.json
 !/pi-otlp.code-workspace

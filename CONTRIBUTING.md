@@ -1,6 +1,6 @@
 # Contributing
 
-Run `mise run install` once after you clone. It installs the dependencies and the Git hooks that check commit messages.
+Run `mise run install` once after you clone. It installs the dependencies and Git hooks of `hk.pkl`, which format staged files, check commit messages, and run lint, type checks and tests before a push.
 
 1. Branch from `master`. Name the branch `type/subject`, such as `fix/tool-legend`.
 2. Write each commit title as `type: subject`, such as `fix: dashboard failure panels and tool legend`. The types are `fix`, `feat`, `test`, `style`, `docs`, `build`, `ops`, `chore`, `perf` and `refactor`. You may add a lowercase scope after the type, as in `fix(dashboard): tool legend`. Start the subject with a lowercase letter. Add `!` before the colon for a breaking change. Keep the title within 50 characters. A commit has a title only, so put the description in the pull request.
