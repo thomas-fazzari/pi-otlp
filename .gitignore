@@ -4,6 +4,7 @@
 # Except this
 !/.editorconfig
 !/.gitignore
+!/.lazy.lua
 !/.gitattributes
 !/.markdownlint-cli2.yaml
 !/.oxfmtrc.json
