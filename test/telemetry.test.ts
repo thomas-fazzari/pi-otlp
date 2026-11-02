@@ -512,3 +512,39 @@ test("gives up the final flush after about 1.5 s when the collector never answer
   expect(elapsed).toBeGreaterThanOrEqual(1450);
   expect(elapsed).toBeLessThan(2000);
 });
+
+// The 60 s test intervals never fire, so only the overdue check can export.
+test("exports on new records once the export timers have missed their ticks", async () => {
+  const receiver = startCollector();
+  configure(receiver.url);
+  const { telemetry } = createTelemetryCore();
+  telemetry.counter("calls").add(1);
+
+  setSystemTime(new Date(Date.now() + 3 * 60_000));
+  try {
+    telemetry.emitLog({ eventName: "event", severity: "info", body: "event" });
+    await receiver.waitFor("/v1/logs");
+    await receiver.waitFor("/v1/metrics");
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("starts a new export when the previous one outlived its timeout", async () => {
+  const receiver = startCollector();
+  receiver.mode = "hang";
+  configure(receiver.url);
+  const { telemetry } = createTelemetryCore();
+  const start = Date.now();
+
+  try {
+    setSystemTime(new Date(start + 3 * 60_000));
+    telemetry.emitLog({ eventName: "first", severity: "info", body: "first" });
+    await receiver.waitFor("/v1/logs");
+    setSystemTime(new Date(start + 6 * 60_000));
+    telemetry.emitLog({ eventName: "second", severity: "info", body: "second" });
+    await receiver.waitFor("/v1/logs", 2);
+  } finally {
+    setSystemTime();
+  }
+});

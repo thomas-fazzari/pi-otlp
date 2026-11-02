@@ -32,7 +32,6 @@ import { startSpan } from "./traces.ts";
 import type { Span, SpanOptions } from "./traces.ts";
 import { raceAbort } from "./utils/abort.ts";
 
-const EXPORT_TIMEOUT_MS = 10_000;
 const FINAL_FLUSH_MS = 1500;
 const SERVICE_NAME = "pi";
 const SCOPE: otlp.InstrumentationScope = { name: "pi-otlp" };
@@ -144,23 +143,27 @@ export function createTelemetryCore(): TelemetryCore {
     });
   };
 
-  const metricsLoop = new ExportLoop(sendMetrics);
-  const spansLoop = new ExportLoop((signal) => spans.send(signal));
-  const logsLoop = new ExportLoop((signal) => logs.send(signal));
-  const schedules = [
-    { loop: metricsLoop, intervalMs: config.metricExportIntervalMs },
-    { loop: spansLoop, intervalMs: config.spanScheduleDelayMs },
-    { loop: logsLoop, intervalMs: config.logScheduleDelayMs },
-  ];
-  for (const { loop, intervalMs } of schedules) {
-    setInterval(() => void loop.run(AbortSignal.timeout(EXPORT_TIMEOUT_MS)), intervalMs).unref();
-  }
+  const metricsLoop = new ExportLoop(sendMetrics, config.metricExportIntervalMs);
+  const spansLoop = new ExportLoop((signal) => spans.send(signal), config.spanScheduleDelayMs);
+  const logsLoop = new ExportLoop((signal) => logs.send(signal), config.logScheduleDelayMs);
+  const runOverdue = () => {
+    for (const loop of [metricsLoop, spansLoop, logsLoop]) {
+      loop.runIfOverdue();
+    }
+  };
 
   const telemetry: Telemetry = {
     counter: (name, options) => meter.counter(name, options),
     histogram: (name, options) => meter.histogram(name, options),
-    startSpan: (name, options = {}) => startSpan(name, options, (span) => spans.push(span)),
-    emitLog: (record) => logs.push(encodeLogRecord(record)),
+    startSpan: (name, options = {}) =>
+      startSpan(name, options, (span) => {
+        spans.push(span);
+        runOverdue();
+      }),
+    emitLog: (record) => {
+      logs.push(encodeLogRecord(record));
+      runOverdue();
+    },
   };
 
   async function drainAll(deadline: AbortSignal): Promise<void> {
