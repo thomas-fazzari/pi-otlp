@@ -6,6 +6,8 @@ import { ERROR_TYPE_VALUE_OTHER } from "./semconv.ts";
 import { BoundedQueue } from "./utils/bounded-queue.ts";
 
 const MAX_QUEUE_SIZE = 2048;
+const EXPORT_TIMEOUT_MS = 10_000;
+const OVERDUE_TICKS = 2;
 // The OTLP/HTTP spec makes only network errors and these statuses retryable.
 const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 
@@ -51,19 +53,38 @@ function errorType(error: unknown): string {
   return error.name;
 }
 
+// Bun 1.3 timers and AbortSignal.timeout can stop firing after the machine sleeps (oven-sh/bun#34564).
 export class ExportLoop {
   readonly #send: (signal: AbortSignal) => Promise<void>;
+  readonly #intervalMs: number;
   #inFlight: Promise<void> | undefined;
+  #lastRunAt = Date.now();
 
-  constructor(send: (signal: AbortSignal) => Promise<void>) {
+  constructor(send: (signal: AbortSignal) => Promise<void>, intervalMs: number) {
     this.#send = send;
+    this.#intervalMs = intervalMs;
+    setInterval(() => void this.run(AbortSignal.timeout(EXPORT_TIMEOUT_MS)), intervalMs).unref();
+  }
+
+  runIfOverdue(): void {
+    if (Date.now() - this.#lastRunAt >= OVERDUE_TICKS * this.#intervalMs) {
+      void this.run(AbortSignal.timeout(EXPORT_TIMEOUT_MS));
+    }
   }
 
   run(signal: AbortSignal): Promise<void> {
-    this.#inFlight ??= this.#send(signal).finally(() => {
-      this.#inFlight = undefined;
+    const now = Date.now();
+    if (this.#inFlight !== undefined && now - this.#lastRunAt < EXPORT_TIMEOUT_MS) {
+      return this.#inFlight;
+    }
+    this.#lastRunAt = now;
+    const inFlight = this.#send(signal).finally(() => {
+      if (this.#inFlight === inFlight) {
+        this.#inFlight = undefined;
+      }
     });
-    return this.#inFlight;
+    this.#inFlight = inFlight;
+    return inFlight;
   }
 
   async drain(signal: AbortSignal): Promise<void> {
