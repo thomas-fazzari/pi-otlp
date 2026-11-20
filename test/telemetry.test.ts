@@ -284,7 +284,7 @@ test("keeps histogram buckets and sums cumulative across exports", async () => {
   );
 });
 
-test("keeps one series per attribute set, whatever the key order, and tells value types apart", async () => {
+test("keeps one series per attribute set, whatever the key order or undefined values, and tells value types apart", async () => {
   const receiver = startCollector();
   configure(receiver.url);
   const { telemetry, flush } = createTelemetryCore();
@@ -292,6 +292,7 @@ test("keeps one series per attribute set, whatever the key order, and tells valu
 
   counter.add(1, { a: 1, b: true });
   counter.add(1, { b: true, a: 1 });
+  counter.add(1, { a: 1, b: true, c: undefined });
   for (const a of ["1", Number.NaN, Infinity, -Infinity]) {
     counter.add(1, { a, b: true });
   }
@@ -301,7 +302,13 @@ test("keeps one series per attribute set, whatever the key order, and tells valu
     metric(receiver.bodies("/v1/metrics").at(0), "typed").sum.dataPoints,
   );
   expect(dataPoints).toHaveLength(5);
-  expect(dataPoints[0]).toMatchObject({ asDouble: 2 });
+  expect(dataPoints[0]).toMatchObject({
+    attributes: [
+      { key: "a", value: { intValue: "1" } },
+      { key: "b", value: { boolValue: true } },
+    ],
+    asDouble: 3,
+  });
 });
 
 test("routes measurements beyond 1999 series to the overflow series", async () => {

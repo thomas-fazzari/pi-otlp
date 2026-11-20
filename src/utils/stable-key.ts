@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
+import { definedEntries } from "../attributes.ts";
 import type { Attributes, AttributeValue } from "../attributes.ts";
 
 export function stableKey(record: Attributes): string {
-  const entries = Object.entries(record).map(
+  const entries = definedEntries(record).map(
     ([key, value]) => [key, typeof value, valueText(value)] as const,
   );
   return JSON.stringify(entries.toSorted(([a], [b]) => (a < b ? -1 : 1)));

@@ -22,8 +22,5 @@ export function detectSession(systemPrompt: string): Session {
 }
 
 export function sessionAttributes(session: Session): Attributes {
-  if (session.agentName === undefined) {
-    return { [ATTR_PI_SESSION_KIND]: session.kind };
-  }
   return { [ATTR_PI_SESSION_KIND]: session.kind, [ATTR_GEN_AI_AGENT_NAME]: session.agentName };
 }

@@ -6,7 +6,7 @@ import type {
   ToolExecutionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { asDouble } from "./attributes.ts";
-import type { Attributes, AttributeValue } from "./attributes.ts";
+import type { Attributes } from "./attributes.ts";
 import {
   ATTR_PI_SESSION_KIND,
   stopReasonErrorType,
@@ -120,11 +120,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
       if (run === undefined) {
         return;
       }
-      const attributes: Record<string, AttributeValue> = {};
-      if (aborted) {
-        attributes[ATTR_PI_ABORTED] = true;
-      }
-      end(run, { attributes });
+      end(run, { attributes: { [ATTR_PI_ABORTED]: aborted ? true : undefined } });
       run = undefined;
     },
 
@@ -199,7 +195,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
 }
 
 function chatAttributes(message: AssistantMessage): Attributes {
-  const attributes: Record<string, AttributeValue> = {
+  return {
     [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_CHAT,
     [ATTR_GEN_AI_PROVIDER_NAME]: message.provider,
     [ATTR_GEN_AI_REQUEST_MODEL]: message.model,
@@ -207,11 +203,8 @@ function chatAttributes(message: AssistantMessage): Attributes {
     [ATTR_GEN_AI_RESPONSE_FINISH_REASONS]: [message.stopReason],
     ...usageAttributes(message.usage),
     [ATTR_PI_COST_USD]: asDouble(message.usage.cost.total),
+    [ATTR_GEN_AI_RESPONSE_ID]: message.responseId,
   };
-  if (message.responseId !== undefined) {
-    attributes[ATTR_GEN_AI_RESPONSE_ID] = message.responseId;
-  }
-  return attributes;
 }
 
 function errorResult(errorType: PiErrorType | undefined): SpanResult {
