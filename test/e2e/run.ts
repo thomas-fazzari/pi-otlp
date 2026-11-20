@@ -20,11 +20,8 @@ const LGTM_LOKI_PORT = "3100/tcp";
 const READY_TIMEOUT_MS = 120_000;
 const POLL_MS = 500;
 const STEP_TIMEOUT_MS = 60_000;
-// The collector in otel-lgtm batches metrics before it writes them to Prometheus.
+// The collector in otel-lgtm batches telemetry before it writes it to Prometheus, Tempo and Loki.
 const INGEST_TIMEOUT_MS = 30_000;
-// Tempo search only finds a trace once its ingester flushes it, which takes about 20 s.
-const TRACE_SEARCH_TIMEOUT_MS = 90_000;
-const TRACE_SEARCH_LIMIT = 100;
 const LINES_POLL_MS = 2000;
 const LOG_QUERY_LIMIT = 1000;
 // Loki fields that vary between runs or repeat the resource, the scope or the severity.
@@ -176,10 +173,20 @@ function latestPointSeconds(body: any): number {
   return Number(latestNanos / NANOS_PER_MS) / MS_PER_SECOND;
 }
 
+// The hex trace ids in an OTLP JSON traces request
+function requestTraceIds(body: any): string[] {
+  const resources: any[] = body.resourceSpans;
+  return resources
+    .flatMap((resource) => resource.scopeSpans)
+    .flatMap((scope) => scope.spans)
+    .map((span) => span.traceId);
+}
+
 // Forwards OTLP requests to otel-lgtm, or fails them on demand.
 function startProxy(otlpUrl: string) {
   let mode: CollectorMode = "accept";
   let lastForwardedMetricsSeconds = 0;
+  const traceIds = new Set<string>();
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -197,6 +204,11 @@ function startProxy(otlpUrl: string) {
         headers: { "content-type": "application/json" },
         body,
       });
+      if (path === "/v1/traces" && upstream.ok) {
+        for (const id of requestTraceIds(JSON.parse(body))) {
+          traceIds.add(id);
+        }
+      }
       if (mode === "ingest-then-refuse" && path === "/v1/metrics") {
         mode = "accept";
         return new Response(null, { status: 503 });
@@ -210,6 +222,7 @@ function startProxy(otlpUrl: string) {
       mode = next;
     },
     lastForwardedMetricsSeconds: () => lastForwardedMetricsSeconds,
+    traceIds: () => [...traceIds],
     stop: () => server.stop(true),
   };
 }
@@ -496,27 +509,22 @@ function hexId(base64: string): string {
   return Buffer.from(base64, "base64").toString("hex");
 }
 
-// Every span Tempo holds for service pi since the given time.
-async function tempoSpans(tempoUrl: string, sinceSeconds: number): Promise<TreeSpan[]> {
-  const params = new URLSearchParams({
-    tags: "service.name=pi",
-    limit: String(TRACE_SEARCH_LIMIT),
-    start: String(Math.floor(sinceSeconds)),
-    end: String(Math.ceil(Date.now() / MS_PER_SECOND) + RANGE_PADDING_SECONDS),
-  });
-  const search = await getJson(`${tempoUrl}/api/search?${params.toString()}`);
-  const found: any[] = search.traces ?? [];
-  const ids = new Set<string>(found.map((trace) => trace.traceID));
-  const spans: TreeSpan[] = [];
-  for (const id of ids) {
-    const { trace } = await getJson(`${tempoUrl}/api/v2/traces/${id}`);
-    const resources: any[] = trace.resourceSpans;
-    const traceSpans: any[] = resources
-      .flatMap((resource) => resource.scopeSpans)
-      .flatMap((scope) => scope.spans);
-    spans.push(...traceSpans.map((span) => ({ ...span, attributes: span.attributes ?? [] })));
-  }
-  return spans;
+// The spans Tempo holds for the given traces, read by id because Tempo search only finds a trace about 30 s after it arrives
+async function tempoSpans(tempoUrl: string, traceIds: string[]): Promise<TreeSpan[]> {
+  const traces = await Promise.all(
+    traceIds.map(async (id) => {
+      const response = await fetch(`${tempoUrl}/api/v2/traces/${id}`, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (response.status === 404) {
+        return [];
+      }
+      const json: any = await response.json();
+      const resources: any[] = json.trace.resourceSpans;
+      return resources.flatMap((resource) => resource.scopeSpans).flatMap((scope) => scope.spans);
+    }),
+  );
+  return traces.flat().map((span) => ({ ...span, attributes: span.attributes ?? [] }));
 }
 
 interface TraceLinks {
@@ -615,16 +623,17 @@ async function checkTracesAndLogs(
   lgtm: Lgtm,
   scenario: Scenario,
   sinceSeconds: number,
+  traceIds: string[],
 ): Promise<boolean> {
   let spans: TreeSpan[] = [];
   const tracesPassed = await checkLines(
     "trace",
     async () => {
-      spans = await tempoSpans(lgtm.tempoUrl, sinceSeconds);
+      spans = await tempoSpans(lgtm.tempoUrl, traceIds);
       return spanTrees(spans);
     },
     scenario.traces,
-    TRACE_SEARCH_TIMEOUT_MS,
+    INGEST_TIMEOUT_MS,
   );
   const links = traceLinks(spans);
   const logsPassed = await checkLines(
@@ -666,7 +675,7 @@ async function runScenario(name: string): Promise<boolean> {
   // The last metrics request forwarded before Pi exited is the final flush.
   const finalFlush = proxy.lastForwardedMetricsSeconds();
   passed = (await checkScenario(lgtm.prometheusUrl, scenario.expect, finalFlush)) && passed;
-  return (await checkTracesAndLogs(lgtm, scenario, startedAt)) && passed;
+  return (await checkTracesAndLogs(lgtm, scenario, startedAt, proxy.traceIds())) && passed;
 }
 
 if (LGTM_IMAGE === "") {
