@@ -13,7 +13,7 @@ import {
   toolErrorType,
   usageAttributes,
 } from "./pi-conventions.ts";
-import type { AssistantMessage } from "./pi-conventions.ts";
+import type { AssistantMessage, PiErrorType } from "./pi-conventions.ts";
 import {
   ATTR_ERROR_TYPE,
   ATTR_GEN_AI_AGENT_NAME,
@@ -214,7 +214,7 @@ function chatAttributes(message: AssistantMessage): Attributes {
   return attributes;
 }
 
-function errorResult(errorType: string | undefined): SpanResult {
+function errorResult(errorType: PiErrorType | undefined): SpanResult {
   if (errorType === undefined) {
     return {};
   }

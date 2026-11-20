@@ -5,7 +5,7 @@ import type { ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 import type { Attributes } from "./attributes.ts";
 import type { Counter } from "./metrics.ts";
 import { stopReasonErrorType, toolErrorType } from "./pi-conventions.ts";
-import type { AssistantMessage, Usage } from "./pi-conventions.ts";
+import type { AssistantMessage, PiErrorType, Usage } from "./pi-conventions.ts";
 import {
   ATTR_ERROR_TYPE,
   ATTR_GEN_AI_OPERATION_NAME,
@@ -125,7 +125,7 @@ function addNonZero(counter: Counter, value: number, attributes: Attributes): vo
   counter.add(value, attributes);
 }
 
-function errorTypeAttribute(errorType: string | undefined): Attributes {
+function errorTypeAttribute(errorType: PiErrorType | undefined): Attributes {
   if (errorType === undefined) {
     return {};
   }

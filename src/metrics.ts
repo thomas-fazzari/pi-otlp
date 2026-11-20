@@ -7,6 +7,7 @@ import { AGGREGATION_TEMPORALITY_CUMULATIVE, toInt64 } from "./otlp.ts";
 import type * as otlp from "./otlp.ts";
 import { stableKey } from "./utils/stable-key.ts";
 import { nowUnixNanos, unixNanos } from "./utils/time.ts";
+import type { UnixNanos } from "./utils/time.ts";
 
 const MAX_SERIES_PER_INSTRUMENT = 2000;
 // The OpenTelemetry metrics SDK spec routes measurements beyond the cardinality limit to this series.
@@ -43,7 +44,7 @@ interface Delivery {
 
 interface Series<T> extends Delivery {
   attributes: otlp.KeyValue[];
-  startTimeUnixNano: otlp.Int64;
+  startTimeUnixNano: UnixNanos;
   data: T;
 }
 
@@ -60,7 +61,7 @@ type HistogramValues = Omit<
   "attributes" | "startTimeUnixNano" | "timeUnixNano"
 >;
 
-type Encode = (time: otlp.Int64, pending: Delivery[]) => otlp.Metric | undefined;
+type Encode = (time: UnixNanos, pending: Delivery[]) => otlp.Metric | undefined;
 
 type Instrument =
   | { kind: "counter"; handle: Counter; encode: Encode }
@@ -94,7 +95,7 @@ class SeriesMap<T> {
     return series;
   }
 
-  encode<P>(time: otlp.Int64, point: (data: T) => P, zero: P, pending: Delivery[]) {
+  encode<P>(time: UnixNanos, point: (data: T) => P, zero: P, pending: Delivery[]) {
     const points = [];
     for (const series of this.#series.values()) {
       const base = { attributes: series.attributes, startTimeUnixNano: series.startTimeUnixNano };

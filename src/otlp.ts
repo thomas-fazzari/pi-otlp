@@ -3,6 +3,9 @@
 
 // The subset of OTLP/HTTP JSON that pi-otlp sends. JSON.stringify leaves out fields set to undefined.
 
+import type { SpanId, TraceId } from "./traces.ts";
+import type { UnixNanos } from "./utils/time.ts";
+
 export const AGGREGATION_TEMPORALITY_CUMULATIVE = 2;
 export const SPAN_KIND = { internal: 1, client: 3 } as const;
 export const STATUS_CODE = { ok: 1, error: 2 } as const;
@@ -38,8 +41,8 @@ export interface InstrumentationScope {
 
 interface DataPointBase {
   attributes: KeyValue[];
-  startTimeUnixNano: Int64;
-  timeUnixNano: Int64;
+  startTimeUnixNano: UnixNanos;
+  timeUnixNano: UnixNanos;
 }
 
 interface NumberDataPoint extends DataPointBase {
@@ -84,27 +87,27 @@ export interface Status {
 }
 
 export interface Span {
-  traceId: string;
-  spanId: string;
-  parentSpanId: string | undefined;
+  traceId: TraceId;
+  spanId: SpanId;
+  parentSpanId: SpanId | undefined;
   name: string;
   kind: (typeof SPAN_KIND)[keyof typeof SPAN_KIND];
-  startTimeUnixNano: Int64;
-  endTimeUnixNano: Int64;
+  startTimeUnixNano: UnixNanos;
+  endTimeUnixNano: UnixNanos;
   attributes: KeyValue[];
   status: Status | undefined;
 }
 
 export interface LogRecord {
-  timeUnixNano: Int64;
-  observedTimeUnixNano: Int64;
+  timeUnixNano: UnixNanos;
+  observedTimeUnixNano: UnixNanos;
   severityNumber: (typeof SEVERITY_NUMBER)[keyof typeof SEVERITY_NUMBER];
   severityText: string;
   eventName: string;
   body: AnyValue;
   attributes: KeyValue[];
-  traceId: string | undefined;
-  spanId: string | undefined;
+  traceId: TraceId | undefined;
+  spanId: SpanId | undefined;
 }
 
 export interface ExportMetricsServiceRequest {
