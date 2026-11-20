@@ -3,5 +3,5 @@
 
 declare const brand: unique symbol;
 
-// A primitive that only its owner's ctor can produce, so 2 values of the same primitive type cannot be swapped
+// A primitive type that only its owner module creates, so that a TraceId cannot stand in for a SpanId.
 export type Brand<T, Name extends string> = T & { readonly [brand]: Name };
