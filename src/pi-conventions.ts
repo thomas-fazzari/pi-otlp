@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import type { MessageEndEvent, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
-import type { Attributes, AttributeValue } from "./attributes.ts";
+import type { Attributes } from "./attributes.ts";
 import {
   ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
   ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
@@ -37,17 +37,14 @@ export function toolErrorType(
 }
 
 export function usageAttributes(usage: Usage): Attributes {
-  const attributes: Record<string, AttributeValue> = {
+  return {
     // The convention counts cached input tokens in gen_ai.usage.input_tokens, and Pi reports them apart.
     [ATTR_GEN_AI_USAGE_INPUT_TOKENS]: usage.input + usage.cacheRead + usage.cacheWrite,
     [ATTR_GEN_AI_USAGE_OUTPUT_TOKENS]: usage.output,
     [ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS]: usage.cacheRead,
     [ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS]: usage.cacheWrite,
+    [ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS]: usage.reasoning,
   };
-  if (usage.reasoning !== undefined) {
-    attributes[ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS] = usage.reasoning;
-  }
-  return attributes;
 }
 
 export function stopReasonErrorType(stopReason: StopReason): PiErrorType | undefined {

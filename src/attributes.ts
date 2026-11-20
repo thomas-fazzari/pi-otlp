@@ -10,14 +10,21 @@ interface DoubleValue {
   readonly double: number;
 }
 export type AttributeValue = ScalarValue | readonly string[] | DoubleValue;
-export type Attributes = Readonly<Record<string, AttributeValue>>;
+// An undefined value leaves the attribute out.
+export type Attributes = Readonly<Record<string, AttributeValue | undefined>>;
 
 export function asDouble(value: number): DoubleValue {
   return { double: value };
 }
 
 export function encodeAttributes(attributes: Attributes): otlp.KeyValue[] {
-  return Object.entries(attributes).map(([key, value]) => ({ key, value: encodeValue(value) }));
+  return definedEntries(attributes).map(([key, value]) => ({ key, value: encodeValue(value) }));
+}
+
+export function definedEntries(attributes: Attributes): [string, AttributeValue][] {
+  return Object.entries(attributes).filter(
+    (entry): entry is [string, AttributeValue] => entry[1] !== undefined,
+  );
 }
 
 function encodeValue(value: AttributeValue): otlp.AnyValue {
