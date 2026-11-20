@@ -5,8 +5,8 @@ import "package://github.com/jdx/hk/releases/download/v2.10.0/hk@2.10.0#/Builtin
 local linters = new Mapping<String, Step> {
   ["license-headers"] {
     glob = "**/*.ts"
-    check = "scripts/license-headers.pl --check {{files}}"
-    fix = "scripts/license-headers.pl {{files}}"
+    check = "scripts/license-headers.sh --check {{files}}"
+    fix = "scripts/license-headers.sh {{files}}"
   }
   ["oxfmt"] {
     glob = "**/*.{md,json,jsonc,yml,yaml,toml,js,mjs,ts}"
@@ -32,7 +32,7 @@ hooks {
   ["commit-msg"] {
     steps {
       ["commit-type"] {
-        check = "perl scripts/commit-msg.pl {{commit_msg_file}}"
+        check = "scripts/commit-msg.sh {{commit_msg_file}}"
       }
     }
   }
