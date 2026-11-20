@@ -5,15 +5,19 @@ import { encodeAttributes } from "./attributes.ts";
 import type { Attributes } from "./attributes.ts";
 import { SPAN_KIND, STATUS_CODE } from "./otlp.ts";
 import type * as otlp from "./otlp.ts";
+import type { Brand } from "./utils/brand.ts";
 import { randomHex } from "./utils/random.ts";
 import { unixNanos } from "./utils/time.ts";
 
 const TRACE_ID_BYTES = 16;
 const SPAN_ID_BYTES = 8;
 
+export type TraceId = Brand<string, "TraceId">;
+export type SpanId = Brand<string, "SpanId">;
+
 export interface SpanContext {
-  readonly traceId: string;
-  readonly spanId: string;
+  readonly traceId: TraceId;
+  readonly spanId: SpanId;
 }
 
 export interface SpanOptions {
@@ -44,9 +48,9 @@ export function startSpan(
   options: SpanOptions,
   onEnd: (span: otlp.Span) => void,
 ): Span {
-  const context = {
-    traceId: options.parent?.traceId ?? randomHex(TRACE_ID_BYTES),
-    spanId: randomHex(SPAN_ID_BYTES),
+  const context: SpanContext = {
+    traceId: options.parent?.traceId ?? newTraceId(),
+    spanId: newSpanId(),
   };
   const startTimeUnixNano = unixNanos(options.startTimeMs ?? Date.now());
   let ended = false;
@@ -69,6 +73,16 @@ export function startSpan(
       });
     },
   };
+}
+
+function newTraceId(): TraceId {
+  // oxlint-disable-next-line typescript/consistent-type-assertions, typescript/no-unsafe-type-assertion
+  return randomHex(TRACE_ID_BYTES) as TraceId;
+}
+
+function newSpanId(): SpanId {
+  // oxlint-disable-next-line typescript/consistent-type-assertions, typescript/no-unsafe-type-assertion
+  return randomHex(SPAN_ID_BYTES) as SpanId;
 }
 
 function encodeStatus(status: SpanStatus | undefined): otlp.Status | undefined {

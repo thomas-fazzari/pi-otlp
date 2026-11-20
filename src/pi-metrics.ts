@@ -91,7 +91,7 @@ export function createPiMetrics(telemetry: Telemetry, session: Attributes): PiMe
         [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_CHAT,
         [ATTR_GEN_AI_RESPONSE_MODEL]: message.responseModel ?? message.model,
         [ATTR_PI_STOP_REASON]: message.stopReason,
-        ...errorTypeAttribute(stopReasonErrorType(message.stopReason)),
+        [ATTR_ERROR_TYPE]: stopReasonErrorType(message.stopReason),
       });
     },
 
@@ -108,7 +108,7 @@ export function createPiMetrics(telemetry: Telemetry, session: Attributes): PiMe
       const tool = {
         ...session,
         [ATTR_GEN_AI_TOOL_NAME]: event.toolName,
-        ...errorTypeAttribute(toolErrorType(event)),
+        [ATTR_ERROR_TYPE]: toolErrorType(event),
       };
       toolCalls.add(1, tool);
       if (event.durationMs !== undefined) {
@@ -123,11 +123,4 @@ function addNonZero(counter: Counter, value: number, attributes: Attributes): vo
     return;
   }
   counter.add(value, attributes);
-}
-
-function errorTypeAttribute(errorType: string | undefined): Attributes {
-  if (errorType === undefined) {
-    return {};
-  }
-  return { [ATTR_ERROR_TYPE]: errorType };
 }

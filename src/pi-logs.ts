@@ -11,7 +11,7 @@ import type {
   SessionStartEvent,
   ThinkingLevelSelectEvent,
 } from "@earendil-works/pi-coding-agent";
-import type { Attributes, AttributeValue } from "./attributes.ts";
+import type { Attributes } from "./attributes.ts";
 import type { LogRecord } from "./logs.ts";
 import { usageAttributes } from "./pi-conventions.ts";
 import type { AssistantMessage } from "./pi-conventions.ts";
@@ -83,12 +83,11 @@ export function createPiLogs(
     });
   }
 
-  function errorMessage(message: string | undefined): Attributes {
+  function errorMessage(message: string | undefined): string | undefined {
     if (!options.errorMessages || message === undefined) {
-      return {};
+      return undefined;
     }
-    const characters = Array.from(message).slice(0, MAX_ERROR_MESSAGE_LENGTH);
-    return { [ATTR_PI_ERROR_MESSAGE]: characters.join("") };
+    return Array.from(message).slice(0, MAX_ERROR_MESSAGE_LENGTH).join("");
   }
 
   return {
@@ -97,19 +96,16 @@ export function createPiLogs(
         return;
       }
       started = true;
-      const attributes: Record<string, AttributeValue> = {
-        [ATTR_PI_SESSION_START_REASON]: start.reason,
-        [ATTR_PI_THINKING_LEVEL_SELECTED]: start.thinkingLevel,
-      };
-      if (start.model !== undefined) {
-        attributes[ATTR_GEN_AI_PROVIDER_NAME] = start.model.provider;
-        attributes[ATTR_GEN_AI_REQUEST_MODEL] = start.model.id;
-      }
       emit({
         eventName: "pi.session.start",
         severity: "info",
         body: "Session started",
-        attributes,
+        attributes: {
+          [ATTR_PI_SESSION_START_REASON]: start.reason,
+          [ATTR_PI_THINKING_LEVEL_SELECTED]: start.thinkingLevel,
+          [ATTR_GEN_AI_PROVIDER_NAME]: start.model?.provider,
+          [ATTR_GEN_AI_REQUEST_MODEL]: start.model?.id,
+        },
       });
     },
 
@@ -127,16 +123,18 @@ export function createPiLogs(
     },
 
     modelSelect(event) {
-      const attributes: Record<string, AttributeValue> = {
-        [ATTR_GEN_AI_PROVIDER_NAME]: event.model.provider,
-        [ATTR_GEN_AI_REQUEST_MODEL]: event.model.id,
-        [ATTR_PI_MODEL_SOURCE]: event.source,
-      };
-      if (event.previousModel !== undefined) {
-        attributes[ATTR_PI_MODEL_PREVIOUS_PROVIDER] = event.previousModel.provider;
-        attributes[ATTR_PI_MODEL_PREVIOUS_MODEL] = event.previousModel.id;
-      }
-      emit({ eventName: "pi.model.select", severity: "info", body: "Model selected", attributes });
+      emit({
+        eventName: "pi.model.select",
+        severity: "info",
+        body: "Model selected",
+        attributes: {
+          [ATTR_GEN_AI_PROVIDER_NAME]: event.model.provider,
+          [ATTR_GEN_AI_REQUEST_MODEL]: event.model.id,
+          [ATTR_PI_MODEL_SOURCE]: event.source,
+          [ATTR_PI_MODEL_PREVIOUS_PROVIDER]: event.previousModel?.provider,
+          [ATTR_PI_MODEL_PREVIOUS_MODEL]: event.previousModel?.id,
+        },
+      });
     },
 
     thinkingLevelSelect(event) {
@@ -153,16 +151,18 @@ export function createPiLogs(
 
     compaction(event) {
       const { usage, tokensBefore } = event.compactionEntry;
-      const attributes: Record<string, AttributeValue> = {
-        [ATTR_PI_COMPACTION_REASON]: event.reason,
-        [ATTR_PI_COMPACTION_TOKENS_BEFORE]: tokensBefore,
-        [ATTR_PI_COMPACTION_WILL_RETRY]: event.willRetry,
-        [ATTR_PI_COMPACTION_FROM_EXTENSION]: event.fromExtension,
-      };
-      if (usage !== undefined) {
-        Object.assign(attributes, usageAttributes(usage));
-      }
-      emit({ eventName: "pi.compaction", severity: "info", body: "Context compacted", attributes });
+      emit({
+        eventName: "pi.compaction",
+        severity: "info",
+        body: "Context compacted",
+        attributes: {
+          [ATTR_PI_COMPACTION_REASON]: event.reason,
+          [ATTR_PI_COMPACTION_TOKENS_BEFORE]: tokensBefore,
+          [ATTR_PI_COMPACTION_WILL_RETRY]: event.willRetry,
+          [ATTR_PI_COMPACTION_FROM_EXTENSION]: event.fromExtension,
+          ...(usage === undefined ? {} : usageAttributes(usage)),
+        },
+      });
     },
 
     compactionFailed(event) {
@@ -175,7 +175,7 @@ export function createPiLogs(
           [ATTR_PI_COMPACTION_ABORTED]: event.aborted,
           [ATTR_PI_COMPACTION_WILL_RETRY]: event.willRetry,
           [ATTR_PI_COMPACTION_FROM_EXTENSION]: event.fromExtension,
-          ...errorMessage(event.errorMessage),
+          [ATTR_PI_ERROR_MESSAGE]: errorMessage(event.errorMessage),
         },
       });
     },
@@ -195,22 +195,26 @@ export function createPiLogs(
       if (message.stopReason !== "error") {
         return;
       }
-      const attributes: Record<string, AttributeValue> = {
-        [ATTR_GEN_AI_PROVIDER_NAME]: message.provider,
-        [ATTR_GEN_AI_REQUEST_MODEL]: message.model,
-        [ATTR_ERROR_TYPE]: message.stopReason,
-        ...errorMessage(message.errorMessage),
-      };
-      if (status !== undefined && status >= MIN_HTTP_ERROR_STATUS) {
-        attributes[ATTR_HTTP_RESPONSE_STATUS_CODE] = status;
-      }
       emit({
         eventName: "pi.model.request.failed",
         severity: "error",
         body: "Model request failed",
-        attributes,
+        attributes: {
+          [ATTR_GEN_AI_PROVIDER_NAME]: message.provider,
+          [ATTR_GEN_AI_REQUEST_MODEL]: message.model,
+          [ATTR_ERROR_TYPE]: message.stopReason,
+          [ATTR_PI_ERROR_MESSAGE]: errorMessage(message.errorMessage),
+          [ATTR_HTTP_RESPONSE_STATUS_CODE]: httpErrorStatus(status),
+        },
         context: chat,
       });
     },
   };
+}
+
+function httpErrorStatus(status: number | undefined): number | undefined {
+  if (status === undefined || status < MIN_HTTP_ERROR_STATUS) {
+    return undefined;
+  }
+  return status;
 }
