@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
+import { match, P } from "ts-pattern";
 import { toInt64 } from "./otlp.ts";
 import type * as otlp from "./otlp.ts";
 
-type ScalarValue = string | number | boolean;
+const SAFE_INTEGER = P.number.int().between(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+
 // A number that stays a double even when whole, because backends store int and double attributes apart.
 interface DoubleValue {
   readonly double: number;
 }
-export type AttributeValue = ScalarValue | readonly string[] | DoubleValue;
+export type AttributeValue = string | number | boolean | readonly string[] | DoubleValue;
 // An undefined value leaves the attribute out.
 export type Attributes = Readonly<Record<string, AttributeValue | undefined>>;
 
@@ -28,37 +30,22 @@ export function definedEntries(attributes: Attributes): [string, AttributeValue]
 }
 
 function encodeValue(value: AttributeValue): otlp.AnyValue {
-  if (typeof value !== "object") {
-    return encodeScalar(value);
-  }
-  if ("double" in value) {
-    return { doubleValue: encodeDouble(value.double) };
-  }
-  return { arrayValue: { values: value.map((item) => ({ stringValue: item })) } };
-}
-
-function encodeScalar(value: ScalarValue): otlp.AnyValue {
-  if (typeof value === "string") {
-    return { stringValue: value };
-  }
-  if (typeof value === "boolean") {
-    return { boolValue: value };
-  }
-  if (Number.isSafeInteger(value)) {
-    return { intValue: toInt64(value) };
-  }
-  return { doubleValue: encodeDouble(value) };
+  return match<AttributeValue, otlp.AnyValue>(value)
+    .with(P.string, (text) => ({ stringValue: text }))
+    .with(P.boolean, (flag) => ({ boolValue: flag }))
+    .with(SAFE_INTEGER, (integer) => ({ intValue: toInt64(integer) }))
+    .with(P.number, (number) => ({ doubleValue: encodeDouble(number) }))
+    .with({ double: P.select() }, (double) => ({ doubleValue: encodeDouble(double) }))
+    .with(P.array(P.string), (items) => ({
+      arrayValue: { values: items.map((item) => ({ stringValue: item })) },
+    }))
+    .exhaustive();
 }
 
 function encodeDouble(value: number): otlp.Double {
-  if (Number.isNaN(value)) {
-    return "NaN";
-  }
-  if (value === Infinity) {
-    return "Infinity";
-  }
-  if (value === -Infinity) {
-    return "-Infinity";
-  }
-  return value;
+  return match<number, otlp.Double>(value)
+    .with(Number.NaN, () => "NaN")
+    .with(Infinity, () => "Infinity")
+    .with(-Infinity, () => "-Infinity")
+    .otherwise((finite) => finite);
 }
