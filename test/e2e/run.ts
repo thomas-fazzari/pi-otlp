@@ -5,6 +5,7 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { match, P } from "ts-pattern";
 import { decodeAttributes } from "../otlp-json.ts";
 import { byStart, spanTrees } from "../span-tree.ts";
 import type { TreeSpan } from "../span-tree.ts";
@@ -392,24 +393,25 @@ async function runStep(
   firstSession: string,
   setCollectorMode: (mode: CollectorMode) => void,
 ): Promise<void> {
-  if ("prompt" in step) {
-    await pi.prompt(step.prompt);
-  } else if ("start" in step) {
-    await pi.request({ type: "prompt", message: step.start });
-  } else if ("sleepMs" in step) {
-    await Bun.sleep(step.sleepMs);
-  } else if ("collector" in step) {
-    setCollectorMode(step.collector);
-  } else if ("compact" in step) {
-    await pi.request({ type: "compact" });
-  } else if (step.session === "new") {
-    await pi.request({ type: "new_session" });
-  } else if (step.session === "switch-to-first") {
-    await pi.request({ type: "switch_session", sessionPath: firstSession });
-  } else {
-    const { messages } = await pi.request({ type: "get_fork_messages" });
-    await pi.request({ type: "fork", entryId: messages[0].entryId });
-  }
+  await match(step)
+    .returnType<Promise<unknown>>()
+    .with({ prompt: P.select() }, (message) => pi.prompt(message))
+    .with({ start: P.select() }, (message) => pi.request({ type: "prompt", message }))
+    .with({ sleepMs: P.select() }, (ms) => Bun.sleep(ms))
+    .with({ collector: P.select() }, (mode) => {
+      setCollectorMode(mode);
+      return Promise.resolve();
+    })
+    .with({ compact: true }, () => pi.request({ type: "compact" }))
+    .with({ session: "new" }, () => pi.request({ type: "new_session" }))
+    .with({ session: "switch-to-first" }, () =>
+      pi.request({ type: "switch_session", sessionPath: firstSession }),
+    )
+    .with({ session: "fork-first-message" }, async () => {
+      const { messages } = await pi.request({ type: "get_fork_messages" });
+      await pi.request({ type: "fork", entryId: messages[0].entryId });
+    })
+    .exhaustive();
 }
 
 async function query(prometheusUrl: string, promql: string, time?: number): Promise<any[]> {

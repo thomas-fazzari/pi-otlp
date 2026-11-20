@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
+import { match, P } from "ts-pattern";
 import type { ExportRequest } from "./otlp.ts";
 import { ERROR_TYPE_VALUE_OTHER } from "./semconv.ts";
 import { BoundedQueue } from "./utils/bounded-queue.ts";
@@ -116,16 +117,12 @@ export class RecordQueue<T> {
       return;
     }
     const result = await post(this.#url, this.#wrap(batch), signal);
-    switch (result.outcome) {
-      case "sent":
-        this.#report.sent(batch.length);
-        return;
-      case "retry":
-        this.#queue.restoreFront(batch);
-        return;
-      case "drop":
-        this.#report.dropped(batch.length, result.errorType);
-        return;
-    }
+    match(result)
+      .with({ outcome: "sent" }, () => this.#report.sent(batch.length))
+      .with({ outcome: "retry" }, () => this.#queue.restoreFront(batch))
+      .with({ outcome: "drop", errorType: P.select() }, (type) =>
+        this.#report.dropped(batch.length, type),
+      )
+      .exhaustive();
   }
 }
