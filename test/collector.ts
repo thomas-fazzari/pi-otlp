@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
+import { match } from "ts-pattern";
 import type * as otlp from "../src/otlp.ts";
 
 const RESPONSE_DELAY_MS = 100;
@@ -61,21 +62,20 @@ export class Collector {
       contentType: request.headers.get("content-type"),
       body: await request.json(),
     });
-    if (this.mode === "hang") {
-      return new Promise<Response>(() => {});
-    }
-    if (this.mode === "reject") {
-      return new Response(null, { status: 400 });
-    }
-    if (this.mode === "slow") {
-      await Bun.sleep(RESPONSE_DELAY_MS);
-      return Response.json({});
-    }
-    if (this.mode === "unavailable") {
-      await Bun.sleep(RESPONSE_DELAY_MS);
-      return new Response(null, { status: 503 });
-    }
-    return Response.json({});
+    return match(this.mode)
+      .returnType<Promise<Response>>()
+      .with("ok", async () => Response.json({}))
+      .with("hang", () => new Promise<Response>(() => {}))
+      .with("reject", async () => new Response(null, { status: 400 }))
+      .with("slow", async () => {
+        await Bun.sleep(RESPONSE_DELAY_MS);
+        return Response.json({});
+      })
+      .with("unavailable", async () => {
+        await Bun.sleep(RESPONSE_DELAY_MS);
+        return new Response(null, { status: 503 });
+      })
+      .exhaustive();
   }
 }
 
