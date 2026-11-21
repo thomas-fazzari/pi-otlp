@@ -13,15 +13,30 @@ const ENV_KEYS = [
   "OTEL_BLRP_SCHEDULE_DELAY",
 ];
 
+interface Bodies {
+  "/v1/metrics": otlp.ExportMetricsServiceRequest;
+  "/v1/traces": otlp.ExportTraceServiceRequest;
+  "/v1/logs": otlp.ExportLogsServiceRequest;
+}
+
+type SignalPath = keyof Bodies;
+
+export type SumPoint = Extract<otlp.Metric, { sum: unknown }>["sum"]["dataPoints"][number];
+export type HistogramPoint = otlp.HistogramDataPoint;
+
 interface ReceivedRequest {
   path: string;
   contentType: string | null;
-  body: any;
 }
 
 // Local stand-in for the OTLP/HTTP receiver of a collector.
 export class Collector {
   readonly requests: ReceivedRequest[] = [];
+  readonly #bodies: { [P in SignalPath]: Bodies[P][] } = {
+    "/v1/metrics": [],
+    "/v1/traces": [],
+    "/v1/logs": [],
+  };
   mode: "ok" | "slow" | "reject" | "unavailable" | "hang" = "ok";
   readonly #server: ReturnType<typeof Bun.serve>;
 
@@ -37,11 +52,11 @@ export class Collector {
     return `http://127.0.0.1:${this.#server.port}`;
   }
 
-  bodies(path: string): any[] {
-    return this.requests.filter((request) => request.path === path).map((request) => request.body);
+  bodies<P extends SignalPath>(path: P): Bodies[P][] {
+    return this.#bodies[path];
   }
 
-  async waitFor(path: string, count = 1): Promise<void> {
+  async waitFor(path: SignalPath, count = 1): Promise<void> {
     const deadline = performance.now() + 3000;
     while (this.bodies(path).length < count) {
       if (performance.now() > deadline) {
@@ -57,11 +72,11 @@ export class Collector {
 
   async #receive(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    this.requests.push({
-      path,
-      contentType: request.headers.get("content-type"),
-      body: await request.json(),
-    });
+    this.requests.push({ path, contentType: request.headers.get("content-type") });
+    if (!isSignalPath(path)) {
+      return new Response(null, { status: 404 });
+    }
+    this.#bodies[path].push(JSON.parse(await request.text()));
     return match(this.mode)
       .returnType<Promise<Response>>()
       .with("ok", async () => Response.json({}))
@@ -95,14 +110,49 @@ export function resetConfig(): void {
   }
 }
 
-export function metric(body: otlp.ExportMetricsServiceRequest | undefined, name: string): any {
+function isSignalPath(path: string): path is SignalPath {
+  return path === "/v1/metrics" || path === "/v1/traces" || path === "/v1/logs";
+}
+
+function metric(
+  body: otlp.ExportMetricsServiceRequest | undefined,
+  name: string,
+): otlp.Metric | undefined {
   return body?.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find(
     (candidate) => candidate.name === name,
   );
 }
 
-export function latestPoints(dataPoints: any[]): any[] {
-  const bySeries = new Map<string, any>();
+export function sumPoints(
+  body: otlp.ExportMetricsServiceRequest | undefined,
+  name: string,
+): SumPoint[] {
+  const found = metric(body, name);
+  if (found === undefined) {
+    return [];
+  }
+  if (!("sum" in found)) {
+    throw new Error(`${name} is not a sum`);
+  }
+  return found.sum.dataPoints;
+}
+
+export function histogramPoints(
+  body: otlp.ExportMetricsServiceRequest | undefined,
+  name: string,
+): HistogramPoint[] {
+  const found = metric(body, name);
+  if (found === undefined) {
+    return [];
+  }
+  if (!("histogram" in found)) {
+    throw new Error(`${name} is not a histogram`);
+  }
+  return found.histogram.dataPoints;
+}
+
+export function latestPoints<T extends { attributes: otlp.KeyValue[] }>(dataPoints: T[]): T[] {
+  const bySeries = new Map<string, T>();
   for (const point of dataPoints) {
     bySeries.set(JSON.stringify(point.attributes), point);
   }

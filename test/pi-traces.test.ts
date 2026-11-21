@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 import { expect, test } from "bun:test";
-import { assistant, loadExtension, toolEnd, toolStart, useCollector } from "./pi-harness.ts";
+import type * as otlp from "../src/otlp.ts";
+import {
+  assistant,
+  loadExtension,
+  spansOf as conversationSpans,
+  toolEnd,
+  toolStart,
+  useCollector,
+} from "./pi-harness.ts";
 import { decodeAttributes } from "./otlp-json.ts";
 import { spanTrees } from "./span-tree.ts";
 
@@ -12,17 +20,24 @@ const NANOS_PER_MS = 1_000_000n;
 
 const collector = useCollector();
 
-function spansOf(conversationId: string): any[] {
-  const bodies: any[] = collector().bodies("/v1/traces");
-  return bodies
-    .flatMap((body) => body.resourceSpans[0].scopeSpans[0].spans)
-    .filter(
-      (span) => decodeAttributes(span.attributes)["gen_ai.conversation.id"] === conversationId,
-    );
+function spansOf(conversationId: string): otlp.Span[] {
+  return conversationSpans(collector(), conversationId);
 }
 
-function spanNamed(spans: any[], name: string): any {
-  return spans.find((span) => span.name === name);
+function spanNamed(spans: otlp.Span[], name: string): otlp.Span {
+  const span = spans.find((candidate) => candidate.name === name);
+  if (span === undefined) {
+    throw new Error(`no span named ${name}`);
+  }
+  return span;
+}
+
+function onlySpan(spans: otlp.Span[]): otlp.Span {
+  const [span] = spans;
+  if (spans.length !== 1 || span === undefined) {
+    throw new Error(`expected one span, got ${spans.length}`);
+  }
+  return span;
 }
 
 function turnStart(turnIndex: number, timestamp = Date.now()) {
@@ -56,7 +71,9 @@ test("builds one trace per run, with turns, model requests and nested tool calls
     "invoke_agent pi(pi.turn(chat claude,execute_tool code(execute_tool read),execute_tool late),pi.turn(chat claude))",
   ]);
   expect(new Set(spans.map((span) => span.traceId)).size).toBe(1);
-  expect(spanNamed(spans, "pi.turn").startTimeUnixNano).toBe(`${BigInt(first) * NANOS_PER_MS}`);
+  expect(String(spanNamed(spans, "pi.turn").startTimeUnixNano)).toBe(
+    `${BigInt(first) * NANOS_PER_MS}`,
+  );
   for (const span of spans) {
     expect(decodeAttributes(span.attributes)).toMatchObject({
       "pi.session.kind": "main",
@@ -105,7 +122,8 @@ test("dates a chat span from the request start and counts cached tokens as input
 
   const spans = spansOf("chat");
   expect(spans.map((span) => span.name)).toEqual(["chat claude", "chat plain"]);
-  const [chat, plain] = spans;
+  const chat = spanNamed(spans, "chat claude");
+  const plain = spanNamed(spans, "chat plain");
   expect(chat).toMatchObject({
     kind: 3,
     startTimeUnixNano: "1793000000123000000",
@@ -131,9 +149,8 @@ test("dates a chat span from the request start and counts cached tokens as input
   expect(plainAttributes["gen_ai.response.model"]).toBe("plain");
   expect(plainAttributes).not.toHaveProperty("gen_ai.response.id");
   expect(plainAttributes).not.toHaveProperty("gen_ai.usage.reasoning.output_tokens");
-  const plainAttributeList: any[] = plain.attributes;
-  const plainCost = plainAttributeList.find((attribute) => attribute.key === "pi.cost.usd");
-  expect(plainCost.value).toEqual({ doubleValue: 0 });
+  const plainCost = plain.attributes.find((attribute) => attribute.key === "pi.cost.usd");
+  expect(plainCost?.value).toEqual({ doubleValue: 0 });
 });
 
 test("marks failed model requests and tools with an error status and error.type, never a message", async () => {
@@ -156,7 +173,7 @@ test("marks failed model requests and tools with an error status and error.type,
   await emit({ type: "session_shutdown", reason: "quit" });
 
   const spans = spansOf("errors");
-  const outcome = (name: string) => {
+  const outcome = (name: string): { status: unknown; errorType: unknown } => {
     const span = spanNamed(spans, name);
     return { status: span.status, errorType: decodeAttributes(span.attributes)["error.type"] };
   };
@@ -212,7 +229,7 @@ test("keeps a retried run in one invoke_agent span and marks an aborted run with
   expect(spanTrees(spansOf("retried"))).toEqual([
     "invoke_agent pi(pi.turn(chat claude[error.type=error]),pi.turn(chat claude))",
   ]);
-  const [run] = spansOf("aborted");
+  const run = onlySpan(spansOf("aborted"));
   expect(spanTrees([run])).toEqual(["invoke_agent pi[pi.aborted=true]"]);
   expect(run.status).toBeUndefined();
 });
@@ -227,7 +244,7 @@ test("names the root span after the pi-subagents agent in a child session", asyn
   await emit({ type: "agent_settled", aborted: false });
   await emit({ type: "session_shutdown", reason: "quit" });
 
-  const [run] = spansOf("child");
+  const run = onlySpan(spansOf("child"));
   expect(run.name).toBe("invoke_agent Explore");
   expect(decodeAttributes(run.attributes)).toMatchObject({
     "gen_ai.agent.name": "Explore",

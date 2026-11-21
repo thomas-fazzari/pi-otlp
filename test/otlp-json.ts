@@ -1,17 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
-function decodeValue(value: any): unknown {
-  if (value.intValue !== undefined) {
-    return Number(value.intValue);
-  }
-  if (value.arrayValue !== undefined) {
-    const values: any[] = value.arrayValue.values;
-    return values.map(decodeValue);
-  }
-  return value.stringValue ?? value.boolValue ?? value.doubleValue;
+import { match, P } from "ts-pattern";
+import type * as otlp from "../src/otlp.ts";
+
+function decodeValue(value: otlp.AnyValue): unknown {
+  return match(value)
+    .with({ intValue: P.select() }, Number)
+    .with({ arrayValue: P.select() }, (array) => array.values.map(decodeValue))
+    .with({ stringValue: P.select() }, (text) => text)
+    .with({ boolValue: P.select() }, (bool) => bool)
+    .with({ doubleValue: P.select() }, (double) => double)
+    .exhaustive();
 }
 
-export function decodeAttributes(attributes: any[]): Record<string, unknown> {
+export function decodeAttributes(attributes: otlp.KeyValue[]): Record<string, unknown> {
   return Object.fromEntries(attributes.map((kv) => [kv.key, decodeValue(kv.value)]));
 }

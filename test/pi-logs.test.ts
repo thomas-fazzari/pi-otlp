@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 import { afterEach, expect, test } from "bun:test";
+import type * as otlp from "../src/otlp.ts";
 import { decodeAttributes } from "./otlp-json.ts";
-import { assistant, loadExtension, toolStart, useCollector } from "./pi-harness.ts";
+import { assistant, loadExtension, spansOf, toolStart, useCollector } from "./pi-harness.ts";
 
 const PROVIDER = "anthropic";
 const SECRET = "secret";
@@ -18,31 +19,22 @@ afterEach(() => {
 });
 
 // The log records exported for one conversation, in export order.
-function logsOf(conversationId: string): any[] {
-  const bodies: any[] = collector().bodies("/v1/logs");
-  return bodies
-    .flatMap((body) => body.resourceLogs[0].scopeLogs[0].logRecords)
+function logsOf(conversationId: string): otlp.LogRecord[] {
+  return collector()
+    .bodies("/v1/logs")
+    .flatMap((body) => body.resourceLogs[0]?.scopeLogs[0]?.logRecords ?? [])
     .filter(
       (record) => decodeAttributes(record.attributes)["gen_ai.conversation.id"] === conversationId,
     );
 }
 
-function summary(record: any) {
+function summary(record: otlp.LogRecord) {
   return {
     eventName: record.eventName,
     severity: record.severityText,
-    body: record.body.stringValue,
+    body: "stringValue" in record.body ? record.body.stringValue : undefined,
     attributes: decodeAttributes(record.attributes),
   };
-}
-
-function spansOf(conversationId: string): any[] {
-  const bodies: any[] = collector().bodies("/v1/traces");
-  return bodies
-    .flatMap((body) => body.resourceSpans[0].scopeSpans[0].spans)
-    .filter(
-      (span) => decodeAttributes(span.attributes)["gen_ai.conversation.id"] === conversationId,
-    );
 }
 
 function failed(fields: Record<string, unknown> = {}) {
@@ -226,8 +218,8 @@ test("adds the initial model and thinking level to the session start record", as
   await emit({ type: "session_start", reason: "startup" });
   await emit({ type: "session_shutdown", reason: "quit" });
 
-  const [start] = logsOf("initial");
-  expect(summary(start).attributes).toEqual({
+  const [start] = logsOf("initial").map(summary);
+  expect(start?.attributes).toEqual({
     "pi.session.kind": "main",
     "gen_ai.conversation.id": "initial",
     "pi.session.start_reason": "startup",
@@ -292,16 +284,16 @@ test("links records inside a run to the innermost open span and a failed request
   await emit(toolStart("bash", "call-1"));
   await emit({ type: "session_shutdown", reason: "quit" });
 
-  const spans = spansOf("context");
-  const spanId = (name: string) => spans.find((span) => span.name === name).spanId;
-  const [run] = spans;
+  const spans = spansOf(collector(), "context");
+  const spanId = (name: string) => spans.find((span) => span.name === name)?.spanId;
+  const traceId = spans[0]?.traceId;
   const records = logsOf("context");
   expect(records.map((record) => [record.eventName, record.traceId, record.spanId])).toEqual([
     ["pi.session.start", undefined, undefined],
-    ["pi.thinking_level.select", run.traceId, spanId("pi.turn")],
-    ["pi.model.request.failed", run.traceId, spanId("chat claude")],
-    ["pi.model.request.failed", run.traceId, spanId("pi.turn")],
-    ["pi.session.shutdown", run.traceId, spanId("execute_tool bash")],
+    ["pi.thinking_level.select", traceId, spanId("pi.turn")],
+    ["pi.model.request.failed", traceId, spanId("chat claude")],
+    ["pi.model.request.failed", traceId, spanId("pi.turn")],
+    ["pi.session.shutdown", traceId, spanId("execute_tool bash")],
   ]);
 });
 
@@ -373,7 +365,7 @@ test("adds truncated error messages to failure records only when PI_OTLP_LOG_ERR
     "opt-in-TRUE": [emoji.repeat(MAX_ERROR_MESSAGE_LENGTH), "summary failed"],
   });
   const spansAndMetrics = JSON.stringify([
-    spansOf("opt-in-TRUE"),
+    spansOf(collector(), "opt-in-TRUE"),
     collector().bodies("/v1/metrics"),
   ]);
   expect(spansAndMetrics).toContain("chat claude");
