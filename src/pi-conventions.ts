@@ -17,6 +17,7 @@ type StopReason = AssistantMessage["stopReason"];
 type FailedStopReason = Extract<StopReason, "error" | "aborted">;
 
 export const ATTR_PI_SESSION_KIND = "pi.session.kind";
+export const ATTR_PI_PROJECT = "pi.project";
 
 const TOOL_ERROR = "tool_error";
 const TOOL_NOT_RUN = "not_run";

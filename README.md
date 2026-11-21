@@ -45,7 +45,7 @@ The extension reads these environment variables.
 
 ## Telemetry
 
-Every Pi metric, span and log event carries `pi.session.kind`, which is `main` or `subagent`. Spans and log events also carry the Pi session ID as `gen_ai.conversation.id`. Names follow the OpenTelemetry semantic conventions for generative AI where one exists.
+Every Pi metric, span and log event carries `pi.session.kind`, which is `main` or `subagent`, and `pi.project`, the name of the directory where Pi started. Subagents keep the project of their parent, even in a git worktree. Spans and log events also carry the Pi session ID as `gen_ai.conversation.id`. Names follow the OpenTelemetry semantic conventions for generative AI where one exists.
 
 - Metrics: `pi.token.usage` by token type, `pi.cost` in USD, `gen_ai.client.operation.duration` for model requests, `pi.tool.calls` and `pi.tool.duration`. The `otel.sdk.exporter.*` and `otel.sdk.processor.*` metrics count exported and dropped records.
 - Traces: an `invoke_agent` span for each agent run, with a `pi.turn` span for each turn. Each turn holds a `chat` span for each model request and an `execute_tool` span for each tool call.
@@ -53,7 +53,7 @@ Every Pi metric, span and log event carries `pi.session.kind`, which is `main` o
 
 ## Content policy
 
-The extension exports metadata only, such as model and provider names, token counts, costs, durations, tool names and error types. It never exports prompts, responses, tool arguments or tool results.
+The extension exports metadata only, such as model and provider names, token counts, costs, durations, tool names, error types and the project directory name, never its full path. It never exports prompts, responses, tool arguments or tool results.
 
 Error messages are free text, so failure events leave them out by default. Set `PI_OTLP_LOG_ERROR_MESSAGES=true` to add them as `pi.error.message`.
 

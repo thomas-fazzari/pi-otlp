@@ -3,12 +3,14 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { logErrorMessages, sdkDisabled } from "./config.ts";
+import { ATTR_PI_PROJECT } from "./pi-conventions.ts";
 import { createPiLogs } from "./pi-logs.ts";
 import type { PiLogs } from "./pi-logs.ts";
 import { createPiMetrics } from "./pi-metrics.ts";
 import type { PiMetrics } from "./pi-metrics.ts";
 import { createPiTraces } from "./pi-traces.ts";
 import type { PiTraces } from "./pi-traces.ts";
+import { processProject } from "./project.ts";
 import { ATTR_GEN_AI_CONVERSATION_ID } from "./semconv.ts";
 import { detectSession, sessionAttributes } from "./session-kind.ts";
 import { flushProcessTelemetry, processTelemetry } from "./telemetry.ts";
@@ -95,13 +97,15 @@ export default function piOtlp(pi: Pick<ExtensionAPI, "on" | "getThinkingLevel">
 
 function createPipeline(ctx: ExtensionContext): Pipeline {
   const session = detectSession(ctx.getSystemPrompt());
+  const project = processProject(ctx.cwd);
   const conversationId = ctx.sessionManager.getSessionId();
+  const common = { ...sessionAttributes(session), [ATTR_PI_PROJECT]: project };
   const telemetry = processTelemetry();
-  const metrics = createPiMetrics(telemetry, sessionAttributes(session));
-  const traces = createPiTraces(telemetry, { ...session, conversationId });
+  const metrics = createPiMetrics(telemetry, common);
+  const traces = createPiTraces(telemetry, { ...session, project, conversationId });
   const logs = createPiLogs(
     telemetry,
-    { ...sessionAttributes(session), [ATTR_GEN_AI_CONVERSATION_ID]: conversationId },
+    { ...common, [ATTR_GEN_AI_CONVERSATION_ID]: conversationId },
     { errorMessages: logErrorMessages(), activeContext: () => traces.activeContext() },
   );
   return { metrics, traces, logs };

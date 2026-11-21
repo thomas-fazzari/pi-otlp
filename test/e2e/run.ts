@@ -4,7 +4,7 @@
 // Drives a real Pi with the scripted provider through a proxy to otel-lgtm, then checks exact increase() values, trace trees and log records.
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { match, P } from "ts-pattern";
 import { decodeAttributes } from "../otlp-json.ts";
 import { byStart, spanTrees } from "../span-tree.ts";
@@ -81,7 +81,8 @@ async function piEnvironment(
   scenario: Scenario,
 ): Promise<{ cwd: string; agentDir: string; env: Record<string, string> }> {
   const agentDir = await mkdtemp(join(tmpdir(), "pi-otlp-e2e-agent-"));
-  const cwd = await mkdtemp(join(tmpdir(), "pi-otlp-e2e-work-"));
+  // pi.project is the cwd's name, so the scenarios need it fixed
+  const cwd = join(await mkdtemp(join(tmpdir(), "pi-otlp-e2e-work-")), "ariane-5");
   await Bun.write(join(cwd, "README.md"), "# e2e\n");
   await Bun.write(
     join(agentDir, "settings.json"),
@@ -358,7 +359,7 @@ async function runScenario(name: string): Promise<boolean> {
   } finally {
     pi.kill();
     await proxy.stop();
-    await rm(cwd, { recursive: true, force: true });
+    await rm(dirname(cwd), { recursive: true, force: true });
     await rm(agentDir, { recursive: true, force: true });
   }
   let passed = exitCode === 0 && pi.extensionErrors.length === 0;

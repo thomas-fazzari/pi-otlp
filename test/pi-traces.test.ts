@@ -131,6 +131,7 @@ test("dates a chat span from the request start and counts cached tokens as input
   });
   expect(decodeAttributes(chat.attributes)).toEqual({
     "pi.session.kind": "main",
+    "pi.project": "ariane-5",
     "gen_ai.conversation.id": "chat",
     "gen_ai.operation.name": "chat",
     "gen_ai.provider.name": PROVIDER,
@@ -234,10 +235,12 @@ test("keeps a retried run in one invoke_agent span and marks an aborted run with
   expect(run.status).toBeUndefined();
 });
 
-test("names the root span after the pi-subagents agent in a child session", async () => {
+test("names the root span after the pi-subagents agent in a child session, under the main session's project", async () => {
+  await loadExtension({ sessionId: "parent" })({ type: "session_start" });
   const emit = loadExtension({
     sessionId: "child",
     systemPrompt: `<active_agent name="Explore"/>\n\nChild prompt.`,
+    cwd: "/tmp/pi-agent-1-worktree",
   });
   await emit({ type: "session_start" });
   await emit({ type: "agent_start" });
@@ -249,5 +252,6 @@ test("names the root span after the pi-subagents agent in a child session", asyn
   expect(decodeAttributes(run.attributes)).toMatchObject({
     "gen_ai.agent.name": "Explore",
     "pi.session.kind": "subagent",
+    "pi.project": "ariane-5",
   });
 });
