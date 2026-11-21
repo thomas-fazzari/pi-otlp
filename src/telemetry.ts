@@ -4,8 +4,8 @@
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { encodeAttributes } from "./attributes.ts";
 import { readConfig } from "./config.ts";
-import { ExportLoop, post, RecordQueue } from "./export.ts";
-import type { DeliveryReport } from "./export.ts";
+import { ExportLoop, MetricExport, RecordQueue } from "./export.ts";
+import type { DeliveryReport, OutcomeCounter } from "./export.ts";
 import { encodeLogRecord } from "./logs.ts";
 import type { LogRecord } from "./logs.ts";
 import { Meter } from "./metrics.ts";
@@ -111,39 +111,24 @@ export function createTelemetryCore(): TelemetryCore {
     }),
     deliveryReport(meter, LOG_PIPELINE),
   );
-  const exportedDataPoints = meter.counter(METRIC_OTEL_SDK_EXPORTER_METRIC_DATA_POINT_EXPORTED, {
-    unit: "{data_point}",
-  });
-  const metricExporter = {
-    [ATTR_OTEL_COMPONENT_TYPE]: OTEL_COMPONENT_TYPE_VALUE_OTLP_HTTP_JSON_METRIC_EXPORTER,
-  };
-  const sendMetrics = async (signal: AbortSignal) => {
-    const { metrics, commit } = meter.collect();
-    if (metrics.length === 0) {
-      return;
-    }
-    const request: otlp.ExportMetricsServiceRequest = {
-      resourceMetrics: [{ resource, scopeMetrics: [{ scope: SCOPE, metrics }] }],
-    };
-    const result = await post(`${config.endpoint}/v1/metrics`, request, signal);
+  const metrics = new MetricExport(
+    `${config.endpoint}/v1/metrics`,
+    () => meter.collect(),
+    (records): otlp.ExportMetricsServiceRequest => ({
+      resourceMetrics: [{ resource, scopeMetrics: [{ scope: SCOPE, metrics: records }] }],
+    }),
+    componentCounter(
+      meter,
+      METRIC_OTEL_SDK_EXPORTER_METRIC_DATA_POINT_EXPORTED,
+      "{data_point}",
+      OTEL_COMPONENT_TYPE_VALUE_OTLP_HTTP_JSON_METRIC_EXPORTER,
+    ),
+  );
 
-    // Prometheus rejects a whole request that re-sends a zero it already holds, so only a retryable failure keeps the zeros.
-    if (result.outcome !== "retry") {
-      commit();
-    }
-
-    // Cumulative points are never queued again, since the next export carries their latest values.
-    if (result.outcome === "sent") {
-      exportedDataPoints.add(countDataPoints(metrics), metricExporter);
-      return;
-    }
-    exportedDataPoints.add(countDataPoints(metrics), {
-      ...metricExporter,
-      [ATTR_ERROR_TYPE]: result.errorType,
-    });
-  };
-
-  const metricsLoop = new ExportLoop(sendMetrics, config.metricExportIntervalMs);
+  const metricsLoop = new ExportLoop(
+    (signal) => metrics.send(signal),
+    config.metricExportIntervalMs,
+  );
   const spansLoop = new ExportLoop((signal) => spans.send(signal), config.spanScheduleDelayMs);
   const logsLoop = new ExportLoop((signal) => logs.send(signal), config.logScheduleDelayMs);
   const runOverdue = () => {
@@ -181,29 +166,31 @@ export function createTelemetryCore(): TelemetryCore {
 }
 
 function deliveryReport(meter: Meter, pipeline: Pipeline): DeliveryReport {
-  const exported = meter.counter(pipeline.exportedMetric, { unit: pipeline.unit });
-  const processed = meter.counter(pipeline.processedMetric, { unit: pipeline.unit });
-  const exporter = { [ATTR_OTEL_COMPONENT_TYPE]: pipeline.exporterType };
-  const processor = { [ATTR_OTEL_COMPONENT_TYPE]: pipeline.processorType };
+  const { unit } = pipeline;
+  const exported = componentCounter(meter, pipeline.exportedMetric, unit, pipeline.exporterType);
+  const processed = componentCounter(meter, pipeline.processedMetric, unit, pipeline.processorType);
   return {
     sent(count) {
-      exported.add(count, exporter);
-      processed.add(count, processor);
+      exported(count);
+      processed(count);
     },
     dropped(count, errorType) {
-      exported.add(count, { ...exporter, [ATTR_ERROR_TYPE]: errorType });
-      processed.add(count, { ...processor, [ATTR_ERROR_TYPE]: errorType });
+      exported(count, errorType);
+      processed(count, errorType);
     },
     ejected(count) {
-      processed.add(count, { ...processor, [ATTR_ERROR_TYPE]: ERROR_TYPE_QUEUE_FULL });
+      processed(count, ERROR_TYPE_QUEUE_FULL);
     },
   };
 }
 
-function countDataPoints(metrics: otlp.Metric[]): number {
-  let count = 0;
-  for (const metric of metrics) {
-    count += "sum" in metric ? metric.sum.dataPoints.length : metric.histogram.dataPoints.length;
-  }
-  return count;
+function componentCounter(
+  meter: Meter,
+  name: string,
+  unit: string,
+  componentType: string,
+): OutcomeCounter {
+  const counter = meter.counter(name, { unit });
+  return (count, errorType) =>
+    counter.add(count, { [ATTR_OTEL_COMPONENT_TYPE]: componentType, [ATTR_ERROR_TYPE]: errorType });
 }

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 import { match, P } from "ts-pattern";
-import type { ExportRequest } from "./otlp.ts";
+import type { MetricsCollection } from "./metrics.ts";
+import type { ExportRequest, Metric } from "./otlp.ts";
 import { ERROR_TYPE_VALUE_OTHER } from "./semconv.ts";
 import { BoundedQueue } from "./utils/bounded-queue.ts";
 
@@ -20,6 +21,8 @@ export interface DeliveryReport {
   dropped(count: number, errorType: string): void;
   ejected(count: number): void;
 }
+
+export type OutcomeCounter = (count: number, errorType?: string) => void;
 
 export async function post(
   url: string,
@@ -125,4 +128,52 @@ export class RecordQueue<T> {
       )
       .exhaustive();
   }
+}
+
+export class MetricExport {
+  readonly #url: string;
+  readonly #collect: () => MetricsCollection;
+  readonly #wrap: (metrics: Metric[]) => ExportRequest;
+  readonly #exported: OutcomeCounter;
+
+  constructor(
+    url: string,
+    collect: () => MetricsCollection,
+    wrap: (metrics: Metric[]) => ExportRequest,
+    exported: OutcomeCounter,
+  ) {
+    this.#url = url;
+    this.#collect = collect;
+    this.#wrap = wrap;
+    this.#exported = exported;
+  }
+
+  async send(signal: AbortSignal): Promise<void> {
+    const { metrics, commit } = this.#collect();
+    if (metrics.length === 0) {
+      return;
+    }
+    const result = await post(this.#url, this.#wrap(metrics), signal);
+    const count = countDataPoints(metrics);
+    // Prometheus rejects a whole request that re-sends a zero it already holds, so only a retryable failure keeps them
+    match(result)
+      .with({ outcome: "sent" }, () => {
+        commit();
+        this.#exported(count);
+      })
+      .with({ outcome: "drop", errorType: P.select() }, (type) => {
+        commit();
+        this.#exported(count, type);
+      })
+      .with({ outcome: "retry", errorType: P.select() }, (type) => this.#exported(count, type))
+      .exhaustive();
+  }
+}
+
+function countDataPoints(metrics: Metric[]): number {
+  let count = 0;
+  for (const metric of metrics) {
+    count += "sum" in metric ? metric.sum.dataPoints.length : metric.histogram.dataPoints.length;
+  }
+  return count;
 }
