@@ -67,6 +67,8 @@ type Instrument =
   | { kind: "counter"; handle: Counter; encode: Encode }
   | { kind: "histogram"; handle: Histogram; encode: Encode };
 
+type InstrumentOf<K extends Instrument["kind"]> = Extract<Instrument, { kind: K }>;
+
 class SeriesMap<T> {
   readonly #series = new Map<string, Series<T>>();
   readonly #create: () => T;
@@ -114,21 +116,11 @@ export class Meter {
   readonly #instruments = new Map<string, Instrument>();
 
   counter(name: string, options: InstrumentOptions = {}): Counter {
-    const instrument =
-      this.#instruments.get(name) ?? this.#register(name, createCounter(name, options));
-    if (instrument.kind !== "counter") {
-      throw new Error(`pi-otlp: instrument ${name} is already a ${instrument.kind}`);
-    }
-    return instrument.handle;
+    return this.#instrument(name, "counter", () => createCounter(name, options)).handle;
   }
 
   histogram(name: string, options: HistogramOptions): Histogram {
-    const instrument =
-      this.#instruments.get(name) ?? this.#register(name, createHistogram(name, options));
-    if (instrument.kind !== "histogram") {
-      throw new Error(`pi-otlp: instrument ${name} is already a ${instrument.kind}`);
-    }
-    return instrument.handle;
+    return this.#instrument(name, "histogram", () => createHistogram(name, options)).handle;
   }
 
   collect(): MetricsCollection {
@@ -145,13 +137,31 @@ export class Meter {
     return { metrics, commit };
   }
 
-  #register(name: string, instrument: Instrument): Instrument {
-    this.#instruments.set(name, instrument);
+  #instrument<K extends Instrument["kind"]>(
+    name: string,
+    kind: K,
+    create: () => InstrumentOf<K>,
+  ): InstrumentOf<K> {
+    let instrument = this.#instruments.get(name);
+    if (instrument === undefined) {
+      instrument = create();
+      this.#instruments.set(name, instrument);
+    }
+    if (!isKind(instrument, kind)) {
+      throw new Error(`pi-otlp: instrument ${name} is already a ${instrument.kind}`);
+    }
     return instrument;
   }
 }
 
-function createCounter(name: string, options: InstrumentOptions): Instrument {
+function isKind<K extends Instrument["kind"]>(
+  instrument: Instrument,
+  kind: K,
+): instrument is InstrumentOf<K> {
+  return instrument.kind === kind;
+}
+
+function createCounter(name: string, options: InstrumentOptions): InstrumentOf<"counter"> {
   const series = new SeriesMap(() => ({ value: 0 }));
   const handle: Counter = {
     add(value, attributes = {}) {
@@ -186,7 +196,7 @@ function createCounter(name: string, options: InstrumentOptions): Instrument {
   return { kind: "counter", handle, encode };
 }
 
-function createHistogram(name: string, options: HistogramOptions): Instrument {
+function createHistogram(name: string, options: HistogramOptions): InstrumentOf<"histogram"> {
   const { boundaries } = options;
   const series = new SeriesMap<HistogramData>(() => ({
     bucketCounts: emptyBuckets(boundaries),
