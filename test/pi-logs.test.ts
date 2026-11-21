@@ -47,7 +47,11 @@ function response(status: number) {
 
 test("logs session, model, thinking level and compaction events with metadata only", async () => {
   const emit = loadExtension({ sessionId: "events" });
-  const common = { "pi.session.kind": "main", "gen_ai.conversation.id": "events" };
+  const common = {
+    "pi.session.kind": "main",
+    "pi.project": "ariane-5",
+    "gen_ai.conversation.id": "events",
+  };
   await emit({ type: "session_start", reason: "resume", previousSessionFile: SECRET });
   await emit({
     type: "model_select",
@@ -221,6 +225,7 @@ test("adds the initial model and thinking level to the session start record", as
   const [start] = logsOf("initial").map(summary);
   expect(start?.attributes).toEqual({
     "pi.session.kind": "main",
+    "pi.project": "ariane-5",
     "gen_ai.conversation.id": "initial",
     "pi.session.start_reason": "startup",
     "pi.thinking_level.selected": "medium",
@@ -250,6 +255,7 @@ test("logs a failed model request, but not an aborted one, with the agent name o
       body: "Model request failed",
       attributes: {
         "pi.session.kind": "subagent",
+        "pi.project": "ariane-5",
         "gen_ai.agent.name": "Explore",
         "gen_ai.conversation.id": "failed",
         "gen_ai.provider.name": PROVIDER,

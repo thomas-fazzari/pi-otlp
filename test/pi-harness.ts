@@ -5,6 +5,7 @@ import { afterAll, beforeAll } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import piOtlp from "../src/index.ts";
 import type * as otlp from "../src/otlp.ts";
+import { resetProcessProject } from "../src/project.ts";
 import { resetProcessTelemetry } from "../src/telemetry.ts";
 import { Collector, configure, resetConfig } from "./collector.ts";
 import { decodeAttributes } from "./otlp-json.ts";
@@ -13,8 +14,9 @@ type Handler = (event: never, ctx: never) => unknown;
 type Emit = (event: { type: string; [key: string]: unknown }) => Promise<void>;
 
 const MAIN_PROMPT = "You are Pi, a coding agent.";
+const PROJECT_DIR = "/home/dev/ariane-5";
 
-// The extension keeps one telemetry core per process, so a test file shares one collector and drops the core after its tests.
+// The extension keeps one telemetry core and project per process, so a test file shares one collector and drops both after its tests.
 export function useCollector(): () => Collector {
   let receiver: Collector | undefined;
   beforeAll(() => {
@@ -25,6 +27,7 @@ export function useCollector(): () => Collector {
     resetConfig();
     await receiver?.stop();
     resetProcessTelemetry();
+    resetProcessProject();
   });
   return () => {
     if (receiver === undefined) {
@@ -48,6 +51,7 @@ export function loadExtension(
   options: {
     systemPrompt?: string;
     sessionId?: string;
+    cwd?: string;
     model?: { provider: string; id: string };
     thinkingLevel?: ReturnType<ExtensionAPI["getThinkingLevel"]>;
   } = {},
@@ -61,6 +65,7 @@ export function loadExtension(
     getThinkingLevel: () => options.thinkingLevel ?? "off",
   });
   const ctx = {
+    cwd: options.cwd ?? PROJECT_DIR,
     getSystemPrompt: () => options.systemPrompt ?? MAIN_PROMPT,
     sessionManager: { getSessionId: () => options.sessionId ?? "session" },
     model: options.model,

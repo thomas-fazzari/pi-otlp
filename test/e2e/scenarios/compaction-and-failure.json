@@ -21,9 +21,9 @@
     "invoke_agent pi(pi.turn(chat faux-1[error.type=error]))"
   ],
   "logs": [
-    "INFO Session started[gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main,pi_session_start_reason=startup,pi_thinking_level_selected=off]",
-    "INFO Context compacted[gen_ai_conversation_id=#1,gen_ai_usage_cache_creation_input_tokens=10,gen_ai_usage_cache_read_input_tokens=50,gen_ai_usage_input_tokens=160,gen_ai_usage_output_tokens=20,pi_compaction_from_extension=false,pi_compaction_reason=manual,pi_compaction_tokens_before=180,pi_compaction_will_retry=false,pi_session_kind=main]",
-    "ERROR Model request failed[error_type=error,gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_session_kind=main]@chat faux-1",
-    "INFO Session shut down[gen_ai_conversation_id=#1,pi_session_kind=main,pi_session_shutdown_reason=quit]"
+    "INFO Session started[gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_project=ariane-5,pi_session_kind=main,pi_session_start_reason=startup,pi_thinking_level_selected=off]",
+    "INFO Context compacted[gen_ai_conversation_id=#1,gen_ai_usage_cache_creation_input_tokens=10,gen_ai_usage_cache_read_input_tokens=50,gen_ai_usage_input_tokens=160,gen_ai_usage_output_tokens=20,pi_compaction_from_extension=false,pi_compaction_reason=manual,pi_compaction_tokens_before=180,pi_compaction_will_retry=false,pi_project=ariane-5,pi_session_kind=main]",
+    "ERROR Model request failed[error_type=error,gen_ai_conversation_id=#1,gen_ai_provider_name=faux-test,gen_ai_request_model=faux-1,pi_project=ariane-5,pi_session_kind=main]@chat faux-1",
+    "INFO Session shut down[gen_ai_conversation_id=#1,pi_project=ariane-5,pi_session_kind=main,pi_session_shutdown_reason=quit]"
   ]
 }

@@ -8,6 +8,7 @@ import type {
 import { asDouble } from "./attributes.ts";
 import type { Attributes } from "./attributes.ts";
 import {
+  ATTR_PI_PROJECT,
   ATTR_PI_SESSION_KIND,
   stopReasonErrorType,
   toolErrorType,
@@ -42,6 +43,7 @@ const ATTR_PI_INTERRUPTED = "pi.interrupted";
 const ATTR_PI_COST_USD = "pi.cost.usd";
 
 interface TraceSession extends Session {
+  project: string;
   conversationId: string;
 }
 
@@ -60,6 +62,7 @@ export interface PiTraces {
 export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiTraces {
   const common = {
     [ATTR_PI_SESSION_KIND]: session.kind,
+    [ATTR_PI_PROJECT]: session.project,
     [ATTR_GEN_AI_CONVERSATION_ID]: session.conversationId,
   };
   const agentName = session.agentName ?? MAIN_AGENT_NAME;

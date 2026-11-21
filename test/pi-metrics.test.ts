@@ -7,7 +7,7 @@ import { histogramPoints, latestPoints, sumPoints } from "./collector.ts";
 import { decodeAttributes } from "./otlp-json.ts";
 import { assistant, loadExtension, toolEnd, useCollector } from "./pi-harness.ts";
 
-const MAIN = { "pi.session.kind": "main" };
+const MAIN = { "pi.session.kind": "main", "pi.project": "ariane-5" };
 
 const collector = useCollector();
 
@@ -235,6 +235,7 @@ test("labels a pi-subagents child with its own agent name, after any inherited t
     {
       attributes: {
         "pi.session.kind": "subagent",
+        "pi.project": "ariane-5",
         "gen_ai.agent.name": "Explore",
         "gen_ai.tool.name": "spawn",
       },
