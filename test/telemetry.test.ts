@@ -20,9 +20,10 @@ import { createTelemetryCore } from "../src/telemetry.ts";
 import {
   Collector,
   configure,
+  histogramPoints,
   latestPoints,
-  metric,
   resetConfig,
+  sumPoints,
   unusedPort,
 } from "./collector.ts";
 
@@ -55,8 +56,15 @@ function error(type: string): otlp.KeyValue {
 }
 
 function sums(body: otlp.ExportMetricsServiceRequest | undefined, name: string): number[] {
-  const points: any[] = metric(body, name).sum.dataPoints;
-  return points.map((point) => point.asDouble);
+  return sumPoints(body, name).map((point) => point.asDouble);
+}
+
+function zeroAndCurrent<T>(points: T[]): [T, T] {
+  const [zero, current] = points;
+  if (zero === undefined || current === undefined) {
+    throw new Error("expected a zero start point and a current point");
+  }
+  return [zero, current];
 }
 
 function numbered(prefix: string, from: number, count: number): string[] {
@@ -271,16 +279,16 @@ test("keeps histogram buckets and sums cumulative across exports", async () => {
 
   const first = receiver.bodies("/v1/metrics").at(0);
   const last = receiver.bodies("/v1/metrics").at(-1);
-  expect(latestPoints(metric(first, "tokens").sum.dataPoints)).toMatchObject([{ asDouble: 10 }]);
-  expect(latestPoints(metric(first, "latency").histogram.dataPoints)).toMatchObject([
+  expect(latestPoints(sumPoints(first, "tokens"))).toMatchObject([{ asDouble: 10 }]);
+  expect(latestPoints(histogramPoints(first, "latency"))).toMatchObject([
     { count: "4", sum: 13.5, min: 0.5, max: 9, bucketCounts: ["2", "1", "1"] },
   ]);
-  expect(metric(last, "tokens").sum.dataPoints).toMatchObject([{ asDouble: 15 }]);
-  expect(metric(last, "latency").histogram.dataPoints).toMatchObject([
+  expect(sumPoints(last, "tokens")).toMatchObject([{ asDouble: 15 }]);
+  expect(histogramPoints(last, "latency")).toMatchObject([
     { count: "5", sum: 20.5, min: 0.5, max: 9, bucketCounts: ["2", "1", "2"] },
   ]);
-  expect(metric(last, "tokens").sum.dataPoints[0].startTimeUnixNano).toBe(
-    metric(first, "tokens").sum.dataPoints[0].startTimeUnixNano,
+  expect(sumPoints(last, "tokens").at(0)?.startTimeUnixNano).toBe(
+    sumPoints(first, "tokens").at(0)?.startTimeUnixNano,
   );
 });
 
@@ -298,9 +306,7 @@ test("keeps one series per attribute set, ignoring key order and undefined value
   }
   await flush();
 
-  const dataPoints = latestPoints(
-    metric(receiver.bodies("/v1/metrics").at(0), "typed").sum.dataPoints,
-  );
+  const dataPoints = latestPoints(sumPoints(receiver.bodies("/v1/metrics").at(0), "typed"));
   expect(dataPoints).toHaveLength(5);
   expect(dataPoints[0]).toMatchObject({
     attributes: [
@@ -323,9 +329,7 @@ test("routes measurements beyond 1999 series to the overflow series", async () =
   counter.add(1, { i: 0 });
   await flush();
 
-  const dataPoints = latestPoints(
-    metric(receiver.bodies("/v1/metrics").at(0), "capped").sum.dataPoints,
-  );
+  const dataPoints = latestPoints(sumPoints(receiver.bodies("/v1/metrics").at(0), "capped"));
   expect(dataPoints).toHaveLength(2000);
   expect(dataPoints[0]).toMatchObject({
     attributes: [{ key: "i", value: { intValue: "0" } }],
@@ -359,7 +363,7 @@ test("keeps the newest 2048 spans and logs, failed batches first, until the coll
 
   expect(spanNames(receiver.bodies("/v1/traces").at(-1))).toEqual(numbered("span", 62, 2048));
   const last = receiver.bodies("/v1/metrics").at(-1);
-  const points = (name: string) => latestPoints(metric(last, name).sum.dataPoints);
+  const points = (name: string) => latestPoints(sumPoints(last, name));
   expect(points(METRIC_OTEL_SDK_EXPORTER_SPAN_EXPORTED)).toMatchObject([
     {
       attributes: [component(OTEL_COMPONENT_TYPE_VALUE_OTLP_HTTP_JSON_SPAN_EXPORTER)],
@@ -397,7 +401,7 @@ test("counts every span and log once, at its final outcome", async () => {
   await flush();
 
   const last = receiver.bodies("/v1/metrics").at(-1);
-  const points = (name: string) => latestPoints(metric(last, name).sum.dataPoints);
+  const points = (name: string) => latestPoints(sumPoints(last, name));
   expect(points(METRIC_OTEL_SDK_EXPORTER_SPAN_EXPORTED)).toMatchObject([
     {
       attributes: [component(OTEL_COMPONENT_TYPE_VALUE_OTLP_HTTP_JSON_SPAN_EXPORTER)],
@@ -443,11 +447,11 @@ test("dates the zero start point before the current point, even within the same 
   }
 
   const body = receiver.bodies("/v1/metrics").at(0);
-  const points = [
-    metric(body, "instant").sum.dataPoints,
-    metric(body, "instant-histogram").histogram.dataPoints,
+  const series = [
+    zeroAndCurrent(sumPoints(body, "instant")),
+    zeroAndCurrent(histogramPoints(body, "instant-histogram")),
   ];
-  for (const [zero, current] of points) {
+  for (const [zero, current] of series) {
     expect(BigInt(zero.timeUnixNano)).toBeLessThan(BigInt(current.timeUnixNano));
   }
 });
@@ -498,11 +502,11 @@ test("prefixes each series with a zero start point until an export containing it
   expect(sums(bodies[2], "calls")).toEqual([5]);
   expect(sums(bodies[2], "late")).toEqual([0, 2]);
   expect(sums(bodies[3], "late")).toEqual([2]);
-  const [zero, current] = metric(bodies[1], "delays").histogram.dataPoints;
+  const [zero, current] = zeroAndCurrent(histogramPoints(bodies[1], "delays"));
   expect(zero).toMatchObject({ count: "0", sum: 0, bucketCounts: ["0", "0"] });
   expect(zero.timeUnixNano).toBe(zero.startTimeUnixNano);
   expect(current.startTimeUnixNano).toBe(zero.startTimeUnixNano);
-  expect(metric(bodies[2], "delays").histogram.dataPoints).toMatchObject([{ count: "1" }]);
+  expect(histogramPoints(bodies[2], "delays")).toMatchObject([{ count: "1" }]);
 });
 
 test("gives up the final flush after about 1.5 s when the collector never answers", async () => {

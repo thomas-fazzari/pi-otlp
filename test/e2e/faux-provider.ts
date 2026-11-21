@@ -4,6 +4,7 @@
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Model, TranscriptContext } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { match, P } from "ts-pattern";
 
 export const PROVIDER = "faux-test";
 export const MODEL = "faux-1";
@@ -15,6 +16,15 @@ const BLOCKED_COMMAND = "true";
 const HANG_COMMAND = "sleep 300";
 // Pi retries errors whose message looks transient, so this one must not.
 const FAILURE_MESSAGE = "the faux model rejects this prompt";
+const SPAWN_ARGUMENTS = {
+  subagent_type: "Explore",
+  description: "probe",
+  prompt: "probe",
+  run_in_background: false,
+};
+
+type Content = AssistantMessage["content"];
+type ToolArguments = Extract<Content[number], { type: "toolCall" }>["arguments"];
 
 function lastUserIndex(context: TranscriptContext): number {
   return context.messages.findLastIndex((message) => message.role === "user");
@@ -36,37 +46,31 @@ function fails(context: TranscriptContext): boolean {
 }
 
 // The transcript since the last user message picks the step: summaries get text, "spawn" calls Agent once, "hang" runs a long bash, other prompts call read, then a blocked bash, then answer.
-function nextContent(context: TranscriptContext): AssistantMessage["content"] {
-  const prompt = lastPrompt(context);
+function text(value: string): Content {
+  return [{ type: "text", text: value }];
+}
+
+function toolCall(name: string, args: ToolArguments): Content {
+  const id = `call_${crypto.randomUUID().slice(0, 8)}`;
+  return [{ type: "toolCall", id, name, arguments: args }];
+}
+
+function nextContent(context: TranscriptContext): Content {
   const results = context.messages
     .slice(lastUserIndex(context))
     .filter((message) => message.role === "toolResult").length;
-  const id = `call_${crypto.randomUUID().slice(0, 8)}`;
-  if (asksForSummary(context)) {
-    return [{ type: "text", text: "summary" }];
-  }
-  if (prompt.includes(HANG_KEYWORD)) {
-    return [{ type: "toolCall", id, name: "bash", arguments: { command: HANG_COMMAND } }];
-  }
-  if (prompt.includes(SPAWN_KEYWORD)) {
-    if (results > 0) {
-      return [{ type: "text", text: "done" }];
-    }
-    const args = {
-      subagent_type: "Explore",
-      description: "probe",
-      prompt: "probe",
-      run_in_background: false,
-    };
-    return [{ type: "toolCall", id, name: "Agent", arguments: args }];
-  }
-  if (results === 0) {
-    return [{ type: "toolCall", id, name: "read", arguments: { path: "README.md" } }];
-  }
-  if (results === 1) {
-    return [{ type: "toolCall", id, name: "bash", arguments: { command: BLOCKED_COMMAND } }];
-  }
-  return [{ type: "text", text: "done" }];
+  return match({ summary: asksForSummary(context), prompt: lastPrompt(context), results })
+    .with({ summary: true }, () => text("summary"))
+    .with({ prompt: P.string.includes(HANG_KEYWORD) }, () =>
+      toolCall("bash", { command: HANG_COMMAND }),
+    )
+    .with({ prompt: P.string.includes(SPAWN_KEYWORD), results: 0 }, () =>
+      toolCall("Agent", SPAWN_ARGUMENTS),
+    )
+    .with({ prompt: P.string.includes(SPAWN_KEYWORD) }, () => text("done"))
+    .with({ results: 0 }, () => toolCall("read", { path: "README.md" }))
+    .with({ results: 1 }, () => toolCall("bash", { command: BLOCKED_COMMAND }))
+    .otherwise(() => text("done"));
 }
 
 function respond(model: Model<string>, context: TranscriptContext) {

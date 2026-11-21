@@ -86,6 +86,10 @@ export async function flushProcessTelemetry(): Promise<void> {
   await store[SHARED_KEY]?.flush();
 }
 
+export function resetProcessTelemetry(): void {
+  delete store[SHARED_KEY];
+}
+
 export function createTelemetryCore(): TelemetryCore {
   const config = readConfig();
   const instanceId = crypto.randomUUID();

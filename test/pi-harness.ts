@@ -4,9 +4,12 @@
 import { afterAll, beforeAll } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import piOtlp from "../src/index.ts";
+import type * as otlp from "../src/otlp.ts";
+import { resetProcessTelemetry } from "../src/telemetry.ts";
 import { Collector, configure, resetConfig } from "./collector.ts";
+import { decodeAttributes } from "./otlp-json.ts";
 
-type Handler = (event: any, ctx: any) => unknown;
+type Handler = (event: never, ctx: never) => unknown;
 type Emit = (event: { type: string; [key: string]: unknown }) => Promise<void>;
 
 const MAIN_PROMPT = "You are Pi, a coding agent.";
@@ -21,7 +24,7 @@ export function useCollector(): () => Collector {
   afterAll(async () => {
     resetConfig();
     await receiver?.stop();
-    Reflect.deleteProperty(globalThis, Symbol.for("pi-otlp"));
+    resetProcessTelemetry();
   });
   return () => {
     if (receiver === undefined) {
@@ -29,6 +32,15 @@ export function useCollector(): () => Collector {
     }
     return receiver;
   };
+}
+
+export function spansOf(receiver: Collector, conversationId: string): otlp.Span[] {
+  return receiver
+    .bodies("/v1/traces")
+    .flatMap((body) => body.resourceSpans[0]?.scopeSpans[0]?.spans ?? [])
+    .filter(
+      (span) => decodeAttributes(span.attributes)["gen_ai.conversation.id"] === conversationId,
+    );
 }
 
 // Loads the extension the way Pi does and returns a function that delivers Pi events to it.
@@ -54,7 +66,10 @@ export function loadExtension(
     model: options.model,
   };
   return async (event) => {
-    await handlers.get(event.type)?.(event, ctx);
+    const handler = handlers.get(event.type);
+    if (handler !== undefined) {
+      await Reflect.apply(handler, undefined, [event, ctx]);
+    }
   };
 }
 

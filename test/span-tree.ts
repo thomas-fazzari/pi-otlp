@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Thomas Fazzari
 // SPDX-License-Identifier: MIT
 
+import type * as otlp from "../src/otlp.ts";
 import { decodeAttributes } from "./otlp-json.ts";
 
 // The OTLP JSON span fields that the tree needs, whether they come from the collector stub or from Tempo.
@@ -10,7 +11,7 @@ export interface TreeSpan {
   parentSpanId?: string | undefined;
   name: string;
   startTimeUnixNano: string;
-  attributes: any[];
+  attributes: otlp.KeyValue[];
 }
 
 const MARKED_ATTRIBUTES = ["error.type", "pi.aborted", "pi.interrupted"];

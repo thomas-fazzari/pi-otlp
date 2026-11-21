@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 import { expect, test } from "bun:test";
-import { latestPoints, metric } from "./collector.ts";
+import type * as otlp from "../src/otlp.ts";
+import { histogramPoints, latestPoints, sumPoints } from "./collector.ts";
 import { decodeAttributes } from "./otlp-json.ts";
 import { assistant, loadExtension, toolEnd, useCollector } from "./pi-harness.ts";
 
@@ -10,20 +11,25 @@ const MAIN = { "pi.session.kind": "main" };
 
 const collector = useCollector();
 
-function dataPoints(name: string, filter: Record<string, unknown>): any[] {
-  const found = metric(collector().bodies("/v1/metrics").at(-1), name);
-  const points = latestPoints(found?.sum?.dataPoints ?? found?.histogram?.dataPoints ?? []);
-  return points.filter((point) => {
+function matching<T extends { attributes: otlp.KeyValue[] }>(
+  points: T[],
+  filter: Record<string, unknown>,
+): T[] {
+  return latestPoints(points).filter((point) => {
     const attributes = decodeAttributes(point.attributes);
     return Object.entries(filter).every(([key, value]) => attributes[key] === value);
   });
+}
+
+function lastBody(): otlp.ExportMetricsServiceRequest | undefined {
+  return collector().bodies("/v1/metrics").at(-1);
 }
 
 function sums(
   name: string,
   filter: Record<string, unknown>,
 ): { attributes: object; value: number }[] {
-  return dataPoints(name, filter).map((point) => ({
+  return matching(sumPoints(lastBody(), name), filter).map((point) => ({
     attributes: decodeAttributes(point.attributes),
     value: point.asDouble,
   }));
@@ -33,7 +39,7 @@ function histograms(
   name: string,
   filter: Record<string, unknown>,
 ): { attributes: object; count: number; sum: number }[] {
-  return dataPoints(name, filter).map((point) => ({
+  return matching(histogramPoints(lastBody(), name), filter).map((point) => ({
     attributes: decodeAttributes(point.attributes),
     count: Number(point.count),
     sum: point.sum,
@@ -247,6 +253,5 @@ test("keeps counting in the same series across session replacement", async () =>
   await second(toolEnd("replaced", false, 1));
   await second({ type: "session_shutdown", reason: "quit" });
 
-  const points = dataPoints("pi.tool.calls", { "gen_ai.tool.name": "replaced" });
-  expect(points).toMatchObject([{ asDouble: 2 }]);
+  expect(sums("pi.tool.calls", { "gen_ai.tool.name": "replaced" })).toMatchObject([{ value: 2 }]);
 });

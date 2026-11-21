@@ -10,20 +10,25 @@ import { decodeAttributes } from "../otlp-json.ts";
 import { byStart, spanTrees } from "../span-tree.ts";
 import type { TreeSpan } from "../span-tree.ts";
 import { MODEL, PROVIDER } from "./faux-provider.ts";
+import {
+  LGTM_IMAGE,
+  lokiStreams,
+  prometheusQuery,
+  removeLgtm,
+  removeLgtmSync,
+  startLgtm,
+  tempoSpans,
+} from "./lgtm.ts";
+import type { Lgtm } from "./lgtm.ts";
+import { PiRpc } from "./pi-rpc.ts";
+import { startProxy } from "./proxy.ts";
+import type { CollectorMode } from "./proxy.ts";
 
-const LGTM_IMAGE = process.env["LGTM_IMAGE"] ?? "";
-const CONTAINER = `pi-otlp-e2e-${process.pid}`;
-const LGTM_OTLP_PORT = "4318/tcp";
-const LGTM_PROMETHEUS_PORT = "9090/tcp";
-const LGTM_TEMPO_PORT = "3200/tcp";
-const LGTM_LOKI_PORT = "3100/tcp";
-const READY_TIMEOUT_MS = 120_000;
 const POLL_MS = 500;
 const STEP_TIMEOUT_MS = 60_000;
 // The collector in otel-lgtm batches telemetry before it writes it to Prometheus, Tempo and Loki.
 const INGEST_TIMEOUT_MS = 30_000;
 const LINES_POLL_MS = 2000;
-const LOG_QUERY_LIMIT = 1000;
 // Loki fields that vary between runs or repeat the resource, the scope or the severity.
 const LOKI_UNCHECKED_FIELDS = new Set([
   "service_name",
@@ -41,9 +46,6 @@ const RANGE_PADDING_SECONDS = 60;
 const RANGE = "1h";
 const TOLERANCE = 1e-9;
 const MS_PER_SECOND = 1000;
-const NANOS_PER_MS = 1_000_000n;
-const NANOS_PER_SECOND = 1_000_000_000n;
-const FETCH_TIMEOUT_MS = 5000;
 // Prometheus returns sample times in seconds with millisecond digits, so equal times can differ in the last bit.
 const TIME_TOLERANCE_SECONDS = 0.0005;
 const SCENARIOS_DIR = join(import.meta.dir, "scenarios");
@@ -51,8 +53,6 @@ const REPO_DIR = join(import.meta.dir, "..", "..");
 const PI_SUBAGENTS_DIR =
   process.env["PI_SUBAGENTS_DIR"] ??
   join(homedir(), ".pi/agent/npm/node_modules/@tintinweb/pi-subagents");
-
-type CollectorMode = "accept" | "refuse" | "ingest-then-refuse";
 
 type Step =
   | { prompt: string }
@@ -72,274 +72,8 @@ interface Scenario {
   logs: string[];
 }
 
-async function run(command: string[]): Promise<string> {
-  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`${command.join(" ")} exited with ${code}: ${stderr}`);
-  }
-  return stdout;
-}
-
-interface Lgtm {
-  otlpUrl: string;
-  prometheusUrl: string;
-  tempoUrl: string;
-  lokiUrl: string;
-}
-
-async function lgtmReady(lgtm: Lgtm): Promise<boolean> {
-  try {
-    const prometheus = await fetch(`${lgtm.prometheusUrl}/-/ready`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    const tempo = await fetch(`${lgtm.tempoUrl}/ready`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    const loki = await fetch(`${lgtm.lokiUrl}/ready`, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    const otlp = await fetch(`${lgtm.otlpUrl}/v1/metrics`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ resourceMetrics: [] }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    return prometheus.ok && tempo.ok && loki.ok && otlp.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function hostUrl(containerPort: string): Promise<string> {
-  const binding = (await run(["docker", "port", CONTAINER, containerPort])).split("\n")[0];
-  return `http://${binding}`;
-}
-
-// A fresh container per scenario, on ports Docker picks, so Prometheus, Tempo and Loki hold only that scenario's data.
-async function startLgtm(): Promise<Lgtm> {
-  await run(["docker", "rm", "-f", CONTAINER]);
-  await run([
-    "docker",
-    "run",
-    "-d",
-    "--name",
-    CONTAINER,
-    "-p",
-    `127.0.0.1::${LGTM_OTLP_PORT}`,
-    "-p",
-    `127.0.0.1::${LGTM_PROMETHEUS_PORT}`,
-    "-p",
-    `127.0.0.1::${LGTM_TEMPO_PORT}`,
-    "-p",
-    `127.0.0.1::${LGTM_LOKI_PORT}`,
-    LGTM_IMAGE,
-  ]);
-  const lgtm = {
-    otlpUrl: await hostUrl(LGTM_OTLP_PORT),
-    prometheusUrl: await hostUrl(LGTM_PROMETHEUS_PORT),
-    tempoUrl: await hostUrl(LGTM_TEMPO_PORT),
-    lokiUrl: await hostUrl(LGTM_LOKI_PORT),
-  };
-  const deadline = performance.now() + READY_TIMEOUT_MS;
-  while (!(await lgtmReady(lgtm))) {
-    if (performance.now() > deadline) {
-      throw new Error(`${LGTM_IMAGE} was not ready after ${READY_TIMEOUT_MS} ms`);
-    }
-    await Bun.sleep(POLL_MS);
-  }
-  return lgtm;
-}
-
-// The latest data point time in an OTLP JSON metrics request, in epoch seconds.
-function latestPointSeconds(body: any): number {
-  let latestNanos = 0n;
-  for (const resource of body.resourceMetrics) {
-    for (const scope of resource.scopeMetrics) {
-      for (const metric of scope.metrics) {
-        for (const point of (metric.sum ?? metric.histogram).dataPoints) {
-          const nanos = BigInt(point.timeUnixNano);
-          if (nanos > latestNanos) {
-            latestNanos = nanos;
-          }
-        }
-      }
-    }
-  }
-  return Number(latestNanos / NANOS_PER_MS) / MS_PER_SECOND;
-}
-
-// The hex trace ids in an OTLP JSON traces request
-function requestTraceIds(body: any): string[] {
-  const resources: any[] = body.resourceSpans;
-  return resources
-    .flatMap((resource) => resource.scopeSpans)
-    .flatMap((scope) => scope.spans)
-    .map((span) => span.traceId);
-}
-
-// Forwards OTLP requests to otel-lgtm, or fails them on demand.
-function startProxy(otlpUrl: string) {
-  let mode: CollectorMode = "accept";
-  let lastForwardedMetricsSeconds = 0;
-  const traceIds = new Set<string>();
-  const server = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    async fetch(request) {
-      const path = new URL(request.url).pathname;
-      if (mode === "refuse") {
-        return new Response(null, { status: 503 });
-      }
-      const body = await request.text();
-      if (path === "/v1/metrics") {
-        lastForwardedMetricsSeconds = latestPointSeconds(JSON.parse(body));
-      }
-      const upstream = await fetch(`${otlpUrl}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-      });
-      if (path === "/v1/traces" && upstream.ok) {
-        for (const id of requestTraceIds(JSON.parse(body))) {
-          traceIds.add(id);
-        }
-      }
-      if (mode === "ingest-then-refuse" && path === "/v1/metrics") {
-        mode = "accept";
-        return new Response(null, { status: 503 });
-      }
-      return new Response(await upstream.arrayBuffer(), { status: upstream.status });
-    },
-  });
-  return {
-    url: `http://127.0.0.1:${server.port}`,
-    setMode: (next: CollectorMode) => {
-      mode = next;
-    },
-    lastForwardedMetricsSeconds: () => lastForwardedMetricsSeconds,
-    traceIds: () => [...traceIds],
-    stop: () => server.stop(true),
-  };
-}
-
-interface Waiter {
-  resolve: (value: any) => void;
-  reject: (error: Error) => void;
-}
-
-class PiRpc {
-  readonly #proc: Bun.Subprocess<"pipe", "pipe", "inherit">;
-  readonly #pending = new Map<string, Waiter>();
-  readonly #extensionErrors: string[] = [];
-  #agentEnd: Waiter | undefined;
-  #exited = false;
-  #nextId = 0;
-
-  constructor(cwd: string, env: Record<string, string>) {
-    this.#proc = Bun.spawn(
-      ["pi", "--mode", "rpc", "--offline", "--session-dir", join(cwd, ".sessions")],
-      {
-        cwd,
-        env: { ...process.env, ...env },
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "inherit",
-      },
-    );
-    this.#read().catch((error: unknown) => {
-      console.error("pi output could not be read:", error);
-    });
-  }
-
-  get extensionErrors(): string[] {
-    return this.#extensionErrors;
-  }
-
-  async request(command: Record<string, unknown>): Promise<any> {
-    if (this.#exited) {
-      throw new Error(`pi exited before ${String(command["type"])}`);
-    }
-    const id = String(++this.#nextId);
-    const response = new Promise<any>((resolve, reject) =>
-      this.#pending.set(id, { resolve, reject }),
-    );
-    await this.#proc.stdin.write(`${JSON.stringify({ ...command, id })}\n`);
-    await this.#proc.stdin.flush();
-    const result = await response;
-    if (!result.success) {
-      throw new Error(`${String(command["type"])} failed: ${result.error}`);
-    }
-    return result.data;
-  }
-
-  async prompt(message: string): Promise<void> {
-    const ended = new Promise<void>((resolve, reject) => {
-      this.#agentEnd = { resolve, reject };
-    });
-    // A failed request leaves ended unawaited, and its later rejection must not crash the runner.
-    ended.catch(() => undefined);
-    await this.request({ type: "prompt", message });
-    await ended;
-  }
-
-  kill(): void {
-    this.#proc.kill();
-  }
-
-  // Closing stdin makes Pi quit, which runs session_shutdown with reason "quit".
-  async quit(): Promise<number> {
-    await this.#proc.stdin.end();
-    return this.#proc.exited;
-  }
-
-  async #read(): Promise<void> {
-    let buffer = "";
-    const decoder = new TextDecoder();
-    try {
-      for await (const chunk of this.#proc.stdout) {
-        buffer += decoder.decode(chunk, { stream: true });
-        let newline = buffer.indexOf("\n");
-        while (newline !== -1) {
-          this.#handle(buffer.slice(0, newline));
-          buffer = buffer.slice(newline + 1);
-          newline = buffer.indexOf("\n");
-        }
-      }
-    } finally {
-      this.#exited = true;
-      const exited = new Error("pi exited while a request was pending");
-      for (const waiter of this.#pending.values()) {
-        waiter.reject(exited);
-      }
-      this.#agentEnd?.reject(exited);
-      this.#agentEnd = undefined;
-    }
-  }
-
-  #handle(line: string): void {
-    let message: any;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      return;
-    }
-    if (message.type === "response") {
-      this.#pending.get(message.id)?.resolve(message);
-      this.#pending.delete(message.id);
-    }
-    if (message.type === "agent_end") {
-      this.#agentEnd?.resolve(undefined);
-      this.#agentEnd = undefined;
-    }
-    if (message.type === "extension_error") {
-      this.#extensionErrors.push(line);
-    }
-  }
+function nowSeconds(): number {
+  return Date.now() / MS_PER_SECOND;
 }
 
 async function piEnvironment(
@@ -378,10 +112,12 @@ async function drive(
   steps: Step[],
   setCollectorMode: (mode: CollectorMode) => void,
 ): Promise<void> {
-  const state = await withTimeout(pi.request({ type: "get_state" }), "get_state");
-  const firstSession: string = state.sessionFile;
+  const state = await withTimeout(
+    pi.request<{ sessionFile: string }>({ type: "get_state" }),
+    "get_state",
+  );
   for (const step of steps) {
-    await withTimeout(runStep(pi, step, firstSession, setCollectorMode), JSON.stringify(step));
+    await withTimeout(runStep(pi, step, state.sessionFile, setCollectorMode), JSON.stringify(step));
   }
 }
 
@@ -421,25 +157,12 @@ async function runStep(
       pi.request({ type: "switch_session", sessionPath: firstSession }),
     )
     .with({ session: "fork-first-message" }, async () => {
-      const { messages } = await pi.request({ type: "get_fork_messages" });
-      await pi.request({ type: "fork", entryId: messages[0].entryId });
+      const { messages } = await pi.request<{ messages: { entryId: string }[] }>({
+        type: "get_fork_messages",
+      });
+      await pi.request({ type: "fork", entryId: messages[0]?.entryId });
     })
     .exhaustive();
-}
-
-async function query(prometheusUrl: string, promql: string, time?: number): Promise<any[]> {
-  const params = new URLSearchParams({ query: promql });
-  if (time !== undefined) {
-    params.set("time", String(time));
-  }
-  const response = await fetch(`${prometheusUrl}/api/v1/query?${params.toString()}`, {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  const json: any = await response.json();
-  if (json.status !== "success") {
-    throw new Error(`${promql}: ${JSON.stringify(json)}`);
-  }
-  return json.data.result;
 }
 
 interface Check {
@@ -455,17 +178,22 @@ async function checkIncrease(
   finalFlushAfter: number,
 ): Promise<Check> {
   // The host clock, not the Docker VM's, set the sample times.
-  const series = await query(prometheusUrl, `${selector}[${RANGE}]`, Date.now() / MS_PER_SECOND);
-  if (series.length !== 1) {
+  const series = await prometheusQuery(prometheusUrl, `${selector}[${RANGE}]`, nowSeconds());
+  const [only] = series;
+  if (series.length !== 1 || only === undefined) {
     return { passed: false, line: `  FAIL ${selector}: ${series.length} series match` };
   }
-  const samples: [number, string][] = series[0].values;
+  const samples = only.values ?? [];
   const lastTime = samples.at(-1)?.[0] ?? 0;
   if (lastTime + TIME_TOLERANCE_SECONDS < finalFlushAfter) {
     return { passed: false, line: `  FAIL ${selector}: the final flush never reached Prometheus` };
   }
-  const [result] = await query(prometheusUrl, `increase(${selector}[${RANGE}])`, lastTime);
-  const actual = Number(result?.value[1]);
+  const [result] = await prometheusQuery(
+    prometheusUrl,
+    `increase(${selector}[${RANGE}])`,
+    lastTime,
+  );
+  const actual = Number(result?.value?.[1]);
   const values = samples
     .map(([, value]) => value)
     .filter((value, i, all) => i === 0 || value !== all[i - 1]);
@@ -499,32 +227,9 @@ async function checkScenario(
   }
 }
 
-async function getJson(url: string): Promise<any> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  return response.json();
-}
-
 // Tempo returns OTLP JSON ids in base64, and Loki stores them in hex.
 function hexId(base64: string): string {
   return Buffer.from(base64, "base64").toString("hex");
-}
-
-// The spans Tempo holds for the given traces, read by id because Tempo search only finds a trace about 30 s after it arrives
-async function tempoSpans(tempoUrl: string, traceIds: string[]): Promise<TreeSpan[]> {
-  const traces = await Promise.all(
-    traceIds.map(async (id) => {
-      const response = await fetch(`${tempoUrl}/api/v2/traces/${id}`, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (response.status === 404) {
-        return [];
-      }
-      const json: any = await response.json();
-      const resources: any[] = json.trace.resourceSpans;
-      return resources.flatMap((resource) => resource.scopeSpans).flatMap((scope) => scope.spans);
-    }),
-  );
-  return traces.flat().map((span) => ({ ...span, attributes: span.attributes ?? [] }));
 }
 
 interface TraceLinks {
@@ -553,19 +258,9 @@ async function lokiRecords(
   sinceSeconds: number,
   links: TraceLinks,
 ): Promise<string[]> {
-  const endSeconds = Math.ceil(Date.now() / MS_PER_SECOND) + RANGE_PADDING_SECONDS;
-  const params = new URLSearchParams({
-    query: '{service_name="pi"}',
-    start: String(BigInt(Math.floor(sinceSeconds)) * NANOS_PER_SECOND),
-    end: String(BigInt(endSeconds) * NANOS_PER_SECOND),
-    limit: String(LOG_QUERY_LIMIT),
-  });
-  const json = await getJson(`${lokiUrl}/loki/api/v1/query_range?${params.toString()}`);
-  const streams: any[] = json.data.result;
+  const streams = await lokiStreams(lokiUrl, sinceSeconds, nowSeconds() + RANGE_PADDING_SECONDS);
   const lines: string[] = [];
-  for (const result of streams) {
-    const fields: Record<string, string> = result.stream;
-    const values: [string, string][] = result.values;
+  for (const { stream: fields, values } of streams) {
     const conversation = fields["gen_ai_conversation_id"] ?? "";
     const attributes = Object.entries({
       ...fields,
@@ -652,7 +347,7 @@ async function runScenario(name: string): Promise<boolean> {
     throw new Error(`${name} has no expectations`);
   }
   const lgtm = await startLgtm();
-  const startedAt = Date.now() / MS_PER_SECOND - RANGE_PADDING_SECONDS;
+  const startedAt = nowSeconds() - RANGE_PADDING_SECONDS;
   const proxy = startProxy(lgtm.otlpUrl);
   const { cwd, agentDir, env } = await piEnvironment(proxy.url, scenario);
   const pi = new PiRpc(cwd, env);
@@ -686,7 +381,7 @@ if (!(await Bun.file(join(PI_SUBAGENTS_DIR, "package.json")).exists())) {
 }
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
-    Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
+    removeLgtmSync();
     process.exit(1);
   });
 }
@@ -702,7 +397,7 @@ try {
     }
   }
 } finally {
-  await run(["docker", "rm", "-f", CONTAINER]);
+  await removeLgtm();
 }
 if (failed > 0) {
   console.log(`${failed} of ${names.length} scenarios failed`);
