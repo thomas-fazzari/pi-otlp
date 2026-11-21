@@ -69,8 +69,7 @@ export function createPiLogs(
   session: Attributes,
   options: LogOptions,
 ): PiLogs {
-  // Pi can deliver session_start and session_shutdown twice to one runtime.
-  let started = false;
+  // Pi can deliver session_shutdown twice to one runtime
   let shutDown = false;
   // Only the last provider response before a message_end counts, since a provider may retry within one request.
   let lastStatus: number | undefined;
@@ -92,10 +91,6 @@ export function createPiLogs(
 
   return {
     sessionStart(start) {
-      if (started) {
-        return;
-      }
-      started = true;
       emit({
         eventName: "pi.session.start",
         severity: "info",

@@ -69,11 +69,15 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
   let run: Span | undefined;
   let turn: Span | undefined;
 
-  function start(name: string, options: SpanOptions): Span {
-    const span = telemetry.startSpan(name, {
+  function startSpan(name: string, options: SpanOptions): Span {
+    return telemetry.startSpan(name, {
       ...options,
       attributes: { ...common, ...options.attributes },
     });
+  }
+
+  function openSpan(name: string, options: SpanOptions): Span {
+    const span = startSpan(name, options);
     open.add(span);
     return span;
   }
@@ -107,7 +111,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
   return {
     agentStart() {
       // Retries and compaction send another agent_start inside the same run.
-      run ??= start(`${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${agentName}`, {
+      run ??= openSpan(`${GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT} ${agentName}`, {
         attributes: {
           [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
           [ATTR_GEN_AI_AGENT_NAME]: agentName,
@@ -128,7 +132,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
       if (turn !== undefined) {
         end(turn);
       }
-      turn = start(TURN_SPAN_NAME, {
+      turn = openSpan(TURN_SPAN_NAME, {
         parent: run?.context,
         startTimeMs: timestamp,
         attributes: { [ATTR_PI_TURN_INDEX]: turnIndex },
@@ -148,11 +152,11 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
         return undefined;
       }
       const errorType = stopReasonErrorType(message.stopReason);
-      const span = telemetry.startSpan(`${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${message.model}`, {
+      const span = startSpan(`${GEN_AI_OPERATION_NAME_VALUE_CHAT} ${message.model}`, {
         kind: "client",
         parent: innermost()?.context,
         startTimeMs: message.timestamp,
-        attributes: { ...common, ...chatAttributes(message) },
+        attributes: chatAttributes(message),
       });
       span.end({
         endTimeMs: message.timestamp + message.durationMs,
@@ -163,7 +167,7 @@ export function createPiTraces(telemetry: Telemetry, session: TraceSession): PiT
 
     toolStart(event) {
       const parent = toolParent(event.parentToolCallId);
-      const span = start(`${GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL} ${event.toolName}`, {
+      const span = openSpan(`${GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL} ${event.toolName}`, {
         parent: parent?.context,
         attributes: {
           [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
